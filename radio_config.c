@@ -1,3 +1,5 @@
+// <TODO> REMOVE THIS FILE
+
 /*! @file radio_config.h
  * @brief This file contains the automatically generated
  * configurations.
