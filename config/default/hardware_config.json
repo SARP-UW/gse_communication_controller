@@ -1,0 +1,68 @@
+{
+    "pressure_sensor_config": [
+        {
+            "id": 1,
+            "name": "Main Pressure Sensor",
+            "voltage_range": {
+                "min": 0,
+                "max": 5
+            },
+            "pressure_range": {
+                "min": 0, 
+                "max": 1000
+            }
+        },
+        {
+            "id": 2,
+            "name": "Secondary Pressure Sensor",
+            "voltage_range": {
+                "min": 0,
+                "max": 5
+            },
+            "pressure_range": {
+                "min": 0, 
+                "max": 1000
+            }
+        },
+        {
+            "id": 3,
+            "name": "Tertiary Pressure Sensor",
+            "voltage_range": {
+                "min": 0,
+                "max": 5
+            },
+            "pressure_range": {
+                "min": 0, 
+                "max": 1000
+            }
+        }
+    ],
+    "valve_config": [
+        {
+            "id": 1,
+            "name": "Main Valve",
+            "default_state": "closed"
+        },
+        {
+            "id": 2,
+            "name": "Secondary Valve",
+            "default_state": "closed"
+        },
+        {
+            "id": 3,
+            "name": "Tertiary Valve",
+            "default_state": "closed"
+        }
+    ],
+    "rs485_config": {
+        "baudrate": 115200,
+        "data_bits": 8,
+        "stop_bits": 1,
+        "parity": "N"
+    },
+    "radio_config": {
+        "data_rate": 100000,
+        "data_rate_deviation": 50000,
+        "channel_spacing": 250000
+    }
+}
