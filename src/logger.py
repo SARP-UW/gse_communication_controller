@@ -19,6 +19,7 @@ class Logger:
         self._path = path
         self._col = col
         try:
+            # Write CSV header only if matching one does not already exist at top of file
             with open(self._path, 'r') as file:
                 first_line = file.readline().strip()
                 expected_header = "timestamp, " + ", ".join(col)

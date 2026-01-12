@@ -1,8 +1,9 @@
 from . import settings
-from typing import List, Queue
-from queue import Queue
-from threading import Thread, Lock
-from time import sleep
+from typing import List
+from threading import Thread, Lock, Condition
+from time import sleep, time
+import os
+import re
 
 # <TEMP>
 # https://www.silabs.com/documents/public/application-notes/AN633.pdf
@@ -12,132 +13,334 @@ from time import sleep
 if not settings.MOCK_MODE:
     import board
     from digitalio import DigitalInOut, Direction
-    from spidev import SpiDev    
+    from spidev import SpiDev 
+    import RPi.GPIO as RPIO
     
-    # SPI bus for radio transceiver
-    RADIO_SPI = SpiDev(
-        bus = 0,
-        device = 0,
-    )
+    # Radio reset pin number (digitalio pin)
+    RADIO_RESET_PIN = board.D25
 
-# Maximum permissible data rate
-RADIO_MAX_DATA_RATE = 1000000
+    # Radio interrupt (NIRQ) pin number (RPi.GPIO BCM pin number)
+    RADIO_NIRQ_PIN = 24
 
-# Minimum permissible data rate
-RADIO_MIN_DATA_RATE = 1000
+# Radio argument bounds
+RADIO_MAX_PACKET_SIZE = 64 # Maximum size of a packet for the radio transceiver (in bytes)
+RADIO_MAX_CHANNEL = 255    # Maximum permissible channel number
 
-# Minimum permissible data rate deviation as a factor of data rate
-RADIO_MIN_DATA_RATE_DEVIATION_FACTOR = 0.1
+# Command arguments for radio configuration
+RADIO_CFG_POWER_UP = bytearray([0x01, 0x01, 0x01, 0xC9, 0xC3, 0x80])   # Power up command arguments (use external mems/TXCO oscillator at 30Mhz)
+RADIO_CFG_GPIO = bytearray([0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00]) # GPIO configuration command arguments (GPIO2 = TX/RX state)
+RADIO_CFG_INT_CTL_ENABLE_PROP = bytearray([0x01, 0x01, 0x00, 0b00000001])    # Interrupt control enable property arguments (enable PH interrupts)
+RADIO_CFG_INT_CTL_PH_ENABLE_PROP = bytearray([0x01, 0x01, 0x01, 0b00010000]) # Packet handler interrupt enable property arguments (enable packet received interrupt)
 
-# Maximum permissible channel spacing
-RADIO_MAX_CHANNEL_SPACING = 500000
+# Radio command tags
+RADIO_CMD_POWER_UP = 0x02        # Powers up radio (with given arguments)
+RADIO_CMD_GPIO_PIN_CFG = 0x13    # Configures GPIO pins on radio
+RADIO_CMD_READ_CMD_BUFFER = 0x44 # Reads command buffer (used for reading CTS register)
+RADIO_CMD_SET_PROPERTY = 0x11    # Sets a property on the radio
+RADIO_CMD_FIFO_INFO = 0x15       # Allows for clearning FIFOs and getting their information
+RADIO_CMD_WRITE_TX_FIFO = 0x66   # Writes data to TX FIFO
+RADIO_CMD_START_TX = 0x31        # Starts transmission of data in TX FIFO
+RADIO_CMD_START_RX = 0x32        # Starts reception of data into RX FIFO
+RADIO_CMD_PACKET_INFO = 0x16     # Gets information about the received packet
+RADIO_CMD_READ_RX_FIFO = 0x77    # Reads data from RX FIFO
 
-# Minimum permissible channel spacing
-RADIO_MIN_CHANNEL_SPACING = 50000
-
-# <TODO>
-RADIO_CMD_READ_CMD_BUFFER = 0x44
-RADIO_CMD_SET_PROPERTY = 0x11
-
-# <TODO>
-RADIO_VAL_CTS_READY = 0xFF
-
-# <TODO>
-RADIO_CONFIG_PROPERTIES = [
-    [0x00, 2, 0x00, [0x11, 0x00, 0x02, 0x00, 0x00, 0x00]],  # RF_GLOBAL_XO_TUNE_2
-    [0x00, 1, 0x03, [0x11, 0x00, 0x01, 0x03, 0x20]],  # RF_GLOBAL_CONFIG_1
-    [0x01, 1, 0x00, [0x11, 0x01, 0x01, 0x00, 0x00]],  # RF_INT_CTL_ENABLE_1
-    [0x02, 4, 0x00, [0x11, 0x02, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]],  # RF_FRR_CTL_A_MODE_4
-    [0x10, 9, 0x00, [0x11, 0x10, 0x09, 0x00, 0x08, 0x14, 0x00, 0x0F, 0x31, 0x00, 0x00, 0x00, 0x00]],  # RF_PREAMBLE_TX_LENGTH_9
-    [0x11, 10, 0x00, [0x11, 0x11, 0x0A, 0x00, 0x01, 0xB4, 0x2B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]],  # RF_SYNC_CONFIG_10
-    [0x12, 12, 0x00, [0x11, 0x12, 0x0C, 0x00, 0x04, 0x01, 0x08, 0xFF, 0xFF, 0x20, 0x02, 0x00, 0x2A, 0x01, 0x00, 0x20]],  # RF_PKT_CRC_CONFIG_12
-    [0x12, 12, 0x0C, [0x11, 0x12, 0x0C, 0x0C, 0x20, 0x00, 0x01, 0x04, 0x82, 0x00, 0x07, 0x00, 0x22, 0x00, 0x00, 0x00]],  # RF_PKT_RX_THRESHOLD_12
-    [0x12, 12, 0x18, [0x11, 0x12, 0x0C, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]],  # RF_PKT_FIELD_3_CRC_CONFIG_12
-    [0x12, 12, 0x24, [0x11, 0x12, 0x0C, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]],  # RF_PKT_RX_FIELD_1_CRC_CONFIG_12
-    [0x12, 5, 0x30, [0x11, 0x12, 0x05, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00]],  # RF_PKT_RX_FIELD_4_CRC_CONFIG_5
-    [0x12, 4, 0x36, [0x11, 0x12, 0x04, 0x36, 0x00, 0x00, 0x00, 0x00]],  # RF_PKT_CRC_SEED_31_24_4
-    [0x20, 12, 0x00, [0x11, 0x20, 0x0C, 0x00, 0x03, 0x00, 0x07, 0x1E, 0x84, 0x80, 0x09, 0xC9, 0xC3, 0x80, 0x00, 0x06]],  # RF_MODEM_MOD_TYPE_12 --------- data rate is 3, 4, 5 (reverse order), freq dev is 11, 12 (reverse order)
-    [0x20, 1, 0x0C, [0x11, 0x20, 0x01, 0x0C, 0xD4]],  # RF_MODEM_FREQ_DEV_0_1
-    [0x20, 12, 0x18, [0x11, 0x20, 0x0C, 0x18, 0x01, 0x00, 0x08, 0x03, 0xC0, 0x00, 0x10, 0x20, 0x00, 0xE8, 0x00, 0x4B]],  # RF_MODEM_TX_RAMP_DELAY_12
-    [0x20, 12, 0x24, [0x11, 0x20, 0x0C, 0x24, 0x06, 0xD3, 0xA0, 0x06, 0xD4, 0x02, 0x00, 0x00, 0x00, 0x23, 0x83, 0x6A]],  # RF_MODEM_BCR_NCO_OFFSET_2_12
-    [0x20, 3, 0x30, [0x11, 0x20, 0x03, 0x30, 0x00, 0xD3, 0xA0]],  # RF_MODEM_AFC_LIMITER_1_3
-    [0x20, 1, 0x35, [0x11, 0x20, 0x01, 0x35, 0xE0]],  # RF_MODEM_AGC_CONTROL_1
-    [0x20, 12, 0x38, [0x11, 0x20, 0x0C, 0x38, 0x11, 0x10, 0x10, 0x80, 0x1A, 0x40, 0x00, 0x00, 0x28, 0x0C, 0xA4, 0x23]],  # RF_MODEM_AGC_WINDOW_SIZE_12
-    [0x20, 10, 0x45, [0x11, 0x20, 0x0A, 0x45, 0x03, 0x01, 0x15, 0x01, 0x00, 0xFF, 0x06, 0x00, 0x18, 0x40]],  # RF_MODEM_RAW_CONTROL_10
-    [0x20, 2, 0x50, [0x11, 0x20, 0x02, 0x50, 0x84, 0x08]],  # RF_MODEM_RAW_SEARCH2_2
-    [0x20, 2, 0x54, [0x11, 0x20, 0x02, 0x54, 0x04, 0x07]],  # RF_MODEM_SPIKE_DET_2
-    [0x20, 1, 0x57, [0x11, 0x20, 0x01, 0x57, 0x00]],  # RF_MODEM_RSSI_MUTE_1
-    [0x20, 5, 0x5B, [0x11, 0x20, 0x05, 0x5B, 0x40, 0x04, 0x08, 0x78, 0x20]],  # RF_MODEM_DSA_CTRL1_5
-    [0x21, 12, 0x00, [0x11, 0x21, 0x0C, 0x00, 0xFF, 0xC4, 0x30, 0x7F, 0xF5, 0xB5, 0xB8, 0xDE, 0x05, 0x17, 0x16, 0x0C]],  # RF_MODEM_CHFLT_RX1_CHFLT_COE13_7_0_12
-    [0x21, 12, 0x0C, [0x11, 0x21, 0x0C, 0x0C, 0x03, 0x00, 0x15, 0xFF, 0x00, 0x00, 0xFF, 0xC4, 0x30, 0x7F, 0xF5, 0xB5]],  # RF_MODEM_CHFLT_RX1_CHFLT_COE1_7_0_12
-    [0x21, 12, 0x18, [0x11, 0x21, 0x0C, 0x18, 0xB8, 0xDE, 0x05, 0x17, 0x16, 0x0C, 0x03, 0x00, 0x15, 0xFF, 0x00, 0x00]],  # RF_MODEM_CHFLT_RX2_CHFLT_COE7_7_0_12
-    [0x22, 4, 0x00, [0x11, 0x22, 0x04, 0x00, 0x08, 0x7F, 0x00, 0x1D]],  # RF_PA_MODE_4
-    [0x23, 7, 0x00, [0x11, 0x23, 0x07, 0x00, 0x34, 0x04, 0x0B, 0x04, 0x07, 0x70, 0x03]],  # RF_SYNTH_PFDCP_CPFF_7
-    [0x30, 12, 0x00, [0x11, 0x30, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]],  # RF_MATCH_VALUE_1_12
-    [0x40, 8, 0x00, [0x11, 0x40, 0x08, 0x00, 0x3C, 0x08, 0x00, 0x00, 0x22, 0x22, 0x20, 0xFF]],  # RF_FREQ_CONTROL_INTE_8
-]
+# Misc radio register constants
+RADIO_CTS_READY_VALUE = 0xFF                                        # CTS (clear to send) register ready value
+RADIO_FIFO_INFO_RESET_TX_FIFO_ARG = 0x01                            # Mask to send as argument to FIFO_INFO which clears TX FIFO
+RADIO_START_TX_CONDITION_ARG = 0b00000011                           # Condition arg for START_TX - Ready state after transmission, enter tx mode, start immediately
+RADIO_ENTER_RX_NCH_ARGS = bytearray([0x00, 0x00, 0x08, 0x08, 0x08]) # Arguments for START_RX command (ommiting channel) (no condition, variable length, keep trying to receive)
 
 class Radio:
     
-    def _update_thread(self) -> None:
+    def _wait_cts(self) -> bool:
         """
-        Internal thread which periodically services the radio transceiver.
+        Internal helper function which waits for CTS (clear to send) signal from radio
+        
+        Returns:
+            True if CTS was received before timeout, False otherwise.
         """
-        while not self._shutdown_flag:
-            # <TODO>
-            sleep(1.0 / settings.RADIO_UPDATE_RATE)
+        start_time = time()
+        while (time() - start_time) < settings.RADIO_CTS_TIMEOUT:
+            data = self._spi_bus.xfer2(bytearray([RADIO_CMD_READ_CMD_BUFFER, 0x00]))
+            if data[1] == RADIO_CTS_READY_VALUE:
+                return True
+        return False
     
-    def __init__(self, data_rate: int, data_rate_deviation: int, channel_spacing: int) -> None:
+    def _tx_thread(self) -> None:
         """
-        <TODO>
+        Internal thread which transmits queued packets
+        """                
+        while not self._shutdown_flag:
+            
+            # Await data to send before next iteration (or shutdown)
+            with self._tx_thread_condition:
+                self._tx_thread_condition.wait_for(
+                    lambda: (len(self._tx_queue) > 0) or self._shutdown_flag
+                )
+
+            # Check shutdown flag again to catch shutdown during wait_for
+            if not self._shutdown_flag:
+                if not settings.MOCK_MODE:
+                    
+                    # Extract queued packets to send (prevent blocking with SPI transfers)
+                    tx_packets: List[bytearray] = []
+                    with self._tx_queue_lock:
+                        tx_packets = self._tx_queue.copy()
+                        self._tx_queue.clear()
+                    
+                    with self._spi_bus_lock:
+                        for packet in tx_packets:
+                            
+                            # Clear TX FIFO
+                            self._spi_bus.xfer2(bytearray([RADIO_CMD_FIFO_INFO, RADIO_FIFO_INFO_RESET_TX_FIFO_ARG]))
+                            self._wait_cts()
+                            
+                            # Write packet to TX FIFO
+                            self._spi_bus.xfer2(bytearray([RADIO_CMD_WRITE_TX_FIFO]) + packet)
+                            self._wait_cts()
+                            
+                            # Start packet transmission
+                            self._spi_bus.xfer2(bytearray([RADIO_CMD_START_TX, self._channel, RADIO_START_TX_CONDITION_ARG, len(packet), 0x00, 0x00]))
+                            self._wait_cts()
+                        
+                        # Enter RX mode again if we are in TX mode (packets were sent) (this allows us to receive packets again)
+                        if len(tx_packets) > 0:
+                            self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
+                            self._wait_cts()
+                
+                # Simulate "sending" data by clearing the TX queue
+                else:
+                    with self._tx_queue_lock:
+                        self._tx_queue.clear()
+    
+    def _rx_interrupt(self) -> None:
         """
-        if data_rate < RADIO_MIN_DATA_RATE:
-            raise ValueError(f"Radio has invalid data rate: {data_rate} < {RADIO_MIN_DATA_RATE}")
-        if data_rate > RADIO_MAX_DATA_RATE:
-            raise ValueError(f"Radio has invalid data rate: {data_rate} > {RADIO_MAX_DATA_RATE}")
-        if data_rate_deviation < (data_rate * RADIO_MIN_DATA_RATE_DEVIATION_FACTOR):
-            raise ValueError(f"Radio has invalid data rate deviation: {data_rate_deviation} < {data_rate * RADIO_MIN_DATA_RATE_DEVIATION_FACTOR}")
-        if data_rate_deviation > data_rate:
-            raise ValueError(f"Radio has invalid data rate deviation: {data_rate_deviation} > {data_rate}")
-        if channel_spacing < RADIO_MIN_CHANNEL_SPACING:
-            raise ValueError(f"Radio has invalid channel spacing: {channel_spacing} < {RADIO_MIN_CHANNEL_SPACING}")
-        if channel_spacing > RADIO_MAX_CHANNEL_SPACING:
-            raise ValueError(f"Radio has invalid channel spacing: {channel_spacing} > {RADIO_MAX_CHANNEL_SPACING}")
+        Internal interrupt handler that receives packets (called when NIRQ goes low).
+        """
+        if not self._shutdown_flag:
+            with self._spi_bus_lock:
+                
+                # Request packet info from radio
+                self._spi_bus.xfer2(bytearray([RADIO_CMD_PACKET_INFO]))
+                
+                # Wait until packet info return values are ready (cts is high)
+                start_time = time()
+                packet_info_data = bytearray()
+                while (time() - start_time) < settings.RADIO_CTS_TIMEOUT:
+                    packet_info_data = self._spi_bus.xfer2(bytearray([RADIO_CMD_READ_CMD_BUFFER, 0x00, 0x00, 0x00]))
+                    if packet_info_data[1] == RADIO_CTS_READY_VALUE:
+                        break
+                else: 
+                    return
+
+                # Parse packet length from packet info (bytes 2 and 3)
+                packet_length = (packet_info_data[2] << 8) | packet_info_data[3]
+                
+                # Request packet data from RX FIFO
+                self._spi_bus.xfer2(bytearray([RADIO_CMD_READ_RX_FIFO]))
+                
+                # Wait until packet data is ready (cts is high)
+                start_time = time()
+                read_rx_fifo_data = bytearray()
+                while (time() - start_time) < settings.RADIO_CTS_TIMEOUT:
+                    read_rx_fifo_data = self._spi_bus.xfer2(bytearray([RADIO_CMD_READ_CMD_BUFFER] + [0x00] * packet_length))
+                    if read_rx_fifo_data[1] == RADIO_CTS_READY_VALUE:
+                        break
+                else: 
+                    return
+                    
+                packet_data = read_rx_fifo_data[2:(2 + packet_length)]
+                with self._rx_queue_lock:
+                    self._rx_queue.append(packet_data)      
+    
+    def __init__(self, radio_config_path: str, channel: int) -> None:
+        """
+        Initializes a Radio object with the given parameters.
         
-        self._data_rate = data_rate
-        self._data_rate_deviation = data_rate_deviation
-        self._channel_spacing = channel_spacing
+        Args:
+            radio_config_path: The path to the radio configuration file (C file generated using Silicon Labs WDS).
+            channel: The channel number to use for transmission/reception.
+        """
+        if not os.path.exists(radio_config_path):
+            raise FileNotFoundError(f"Radio configuration file not found: {radio_config_path}")
+        if channel < 0:
+            raise ValueError(f"Invalid channel number: {channel} < 0")
+        if channel > RADIO_MAX_CHANNEL:
+            raise ValueError(f"Invalid channel number: {channel} > {RADIO_MAX_CHANNEL}")
+        
+        self._radio_config_path = radio_config_path
+        self._channel = channel
         self._shutdown_flag = False
-        self._thread_lock = Lock()
-        self._tx_queue: Queue[bytearray] = Queue()
-        self._rx_queue: Queue[bytearray] = Queue()
+        self._tx_queue_lock = Lock()
+        self._rx_queue_lock = Lock()
+        self._spi_bus_lock = Lock()
+        self._tx_thread_condition = Condition(self._tx_queue_lock)
+        self._tx_queue: List[bytearray] = []
+        self._rx_queue: List[bytearray] = []
         
-        def wait_cts_reg(self) -> None:
-            """
-            Waits for the Clear To Send (CTS) register from the radio transceiver (blocking).
-            """
-            cts: bool = False
-            while not cts:
-                rx = RADIO_SPI.xfer2([RADIO_CMD_READ_CMD_BUFFER, 0x00])
-                cts = (rx[1] & 0xFF) == RADIO_VAL_CTS_READY
-                                
+        if not settings.MOCK_MODE:
+            self._reset_io = DigitalInOut(RADIO_RESET_PIN)
+            self._reset_io.direction = Direction.OUTPUT
+            self._reset_io.value = False
+            
+            RPIO.setmode(RPIO.BCM)
+            RPIO.setup(RADIO_NIRQ_PIN, RPIO.IN)
+            
+            self._spi_bus = SpiDev(
+                bus = 0,
+                device = 0,
+            )
+            
+            # Reset the radio transceiver
+            self._reset_io.value = True
+            sleep(0.02)
+            self._reset_io.value = False
+            sleep(0.02)
+            
+            # Power up command takes core system config arguments (use external mems/TXCO oscillator at 30Mhz)
+            self._spi_bus.xfer2(bytearray([RADIO_CMD_POWER_UP]) + RADIO_CFG_POWER_UP)
+            if not self._wait_cts():
+                raise TimeoutError("Timeout while waiting for CTS after power up command")
+            
+            # Configure GPIO so that GPIO2 indicates TX/RX state
+            self._spi_bus.xfer2(bytearray([RADIO_CMD_GPIO_PIN_CFG]) + RADIO_CFG_GPIO)
+            if not self._wait_cts():
+                raise TimeoutError("Timeout while waiting for CTS after GPIO configuration command")
         
-        self._update_thread = Thread(target=self._update_thread)
-        self._update_thread.start()
+        # Parsing logic for radio configuration file
+        with open(radio_config_path, 'r') as f:
+            content = f.read()
         
+        # Pattern to match the comment block + #define
+        # Captures: property name, number of properties, group ID, start ID, and the byte array
+        pattern = r'// Set properties:\s+(RF_\w+)\s+// Number of properties:\s+(\d+)\s+// Group ID:\s+(0x[0-9A-Fa-f]+)\s+// Start ID:\s+(0x[0-9A-Fa-f]+)\s+.*?#define\s+\1\s+((?:0x[0-9A-Fa-f]{2}(?:,\s*)?)+)'
+        matches = re.finditer(pattern, content, re.DOTALL | re.MULTILINE)
         
+        radio_properties = []
+        for match in matches:
+            num_properties = int(match.group(2))
+            group_id = int(match.group(3), 16)
+            start_id = int(match.group(4), 16)
+            bytes_str = match.group(5)
+            
+            # Parse the byte values from list in the #define (property args) and create a bytearray from it
+            bytes_list = [int(b.strip(), 16) for b in bytes_str.split(',')]
+            radio_properties.append(bytearray([group_id, num_properties, start_id] + bytes_list))
+        
+        if len(radio_properties) != 31:
+            raise ValueError(f"Invalid number of radio properties: {len(radio_properties)} != 31 (config file is likely incorrect)")
+            
+        if not settings.MOCK_MODE:
+            
+            # Set all properties in the radio transceiver using set_property command
+            for prop in radio_properties:
+                self._spi_bus.xfer2(bytearray([RADIO_CMD_SET_PROPERTY]) + prop)
+                if not self._wait_cts():
+                    raise TimeoutError("Timeout while waiting for CTS after set property command (user properties)")
+
+            # Override IRQ properties so that NIRQ is pulled low when we receive a packet
+            self._spi_bus.xfer2(bytearray([RADIO_CMD_SET_PROPERTY]) + RADIO_CFG_INT_CTL_ENABLE_PROP)
+            if not self._wait_cts():
+                raise TimeoutError("Timeout while waiting for CTS after set property command (interrupt property override)")
+
+            # Configure interrupt on NIRQ pin so _rx_interrupt is called when we receive a packet
+            RPIO.add_event_detect(
+                channel = RADIO_NIRQ_PIN,
+                edge = RPIO.FALLING,
+                callback = lambda _: self._rx_interrupt()
+            )
+
+            # Enter RX mode (so that we can receive packets)            
+            self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
+            self._wait_cts()
+
+        self._tx_thread = Thread(target=self._tx_thread)
+        self._tx_thread.start()
+              
     @classmethod
     def from_config(cls, config: dict) -> "Radio":
-        ...
+        """
+        Initializes a Radio object from a configuration dictionary.
         
+        Args:
+            config: The target configuration dictionary.
+        """
+        if 'radio_config_path' not in config:
+            raise KeyError(f"Radio config missing key: 'radio_config_path'")
+        if 'channel' not in config:
+            raise KeyError(f"Radio config missing key: 'channel'")
+        
+        radio_config_path = config['radio_config_path']
+        if not isinstance(radio_config_path, str):
+            raise ValueError(f"Radio config 'radio_config_path' must be a string, got: {type(radio_config_path).__name__}")
+        
+        try:
+            channel = int(config['channel'])
+        except (ValueError, TypeError):
+            raise ValueError(f"Radio config 'channel' must be an integer, got: {type(config['channel']).__name__}")
+        
+        return cls(
+            radio_config_path = radio_config_path,
+            channel = channel
+        )
+ 
     def __del__(self) -> None:
-        self._shutdown()
+        self.shutdown()
 
-    def transmit(self, data: List[bytearray]) -> None:
-        ...
+    def transmit(self, packets: List[bytearray]) -> None:
+        """
+        Transmits the given list of packets using the radio transceiver. Note that while transmitting, 
+        the radio cannot receive packets. This method cannot be called after shutdown().
         
+        Args:
+            packets: The list of packets to transmit (bytearray of data).
+        """
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot transmit data: Radio is shutdown")
+        for packet in packets:
+            if len(packet) == 0:
+                raise ValueError("Cannot transmit packet with no data")
+            if len(packet) > RADIO_MAX_PACKET_SIZE:
+                raise ValueError(f"Cannot transmit packet: size {len(packet)} > RADIO_MAX_PACKET_SIZE {RADIO_MAX_PACKET_SIZE}")
+
+        with self._tx_thread_condition:
+            for packet in packets:
+                self._tx_queue.append(packet)
+                
+            # Inform TX thread that data is available to send
+            self._tx_thread_condition.notify_all()
+
     def receive(self) -> List[bytearray]:
-        ...
+        """
+        Gets all packets received by radio transceiver since last call to receive().
+        
+        Returns:
+            A list of the received packets (bytearray of data).
+        """
+        packets: List[bytearray] = []
+        with self._rx_queue_lock:
+            packets = self._rx_queue.copy()
+            self._rx_queue.clear()
+        return packets 
     
     def shutdown(self) -> None:
-        ...
+        """
+        Shuts down the radio transceiver and stops all internal threads.
+        """
+        if self._shutdown_flag:
+            raise RuntimeError("Radio is already shutdown")
+        self._shutdown_flag = True
+
+        # Inform TX thread that _shutdown_flag has been updated
+        with self._tx_thread_condition:
+            self._tx_thread_condition.notify_all()
+        
+        # Cleanup IO/SPI only once SPI bus not in use by thread/interrupt (avoid corrupt transfers)
+        if not settings.MOCK_MODE:
+            with self._spi_bus_lock: 
+                RPIO.remove_event_detect(RADIO_NIRQ_PIN)
+                RPIO.cleanup(RADIO_NIRQ_PIN)
+                self._reset_io.deinit()
+                self._spi_bus.close()
+                
+            

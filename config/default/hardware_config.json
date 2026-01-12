@@ -61,8 +61,7 @@
         "parity": "N"
     },
     "radio_config": {
-        "data_rate": 100000,
-        "data_rate_deviation": 50000,
-        "channel_spacing": 250000
+        "radio_config_file": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\config\\default\\radio_config.c",
+        "channel": 0
     }
 }

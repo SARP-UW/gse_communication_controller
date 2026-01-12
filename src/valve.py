@@ -48,7 +48,7 @@ class Valve:
         self.name = name
         self._default_state = default_state
         self._state = default_state
-           
+
         if not settings.MOCK_MODE:
             self._io = DigitalInOut(VALVE_PIN_MAP[id])
             self._io.direction = Direction.OUTPUT
@@ -68,12 +68,7 @@ class Valve:
             raise KeyError(f"Valve config missing key: 'name'")
         if 'default_state' not in config:
             raise KeyError(f"Valve config missing key: 'default_state'")
-        
-        try:
-            id = int(config['id'])
-        except (ValueError, TypeError):
-            raise ValueError(f"Valve config 'id' must be an integer, got: {type(config['id']).__name__}")
-        
+                
         name = config['name']
         if not isinstance(name, str):
             raise ValueError(f"Valve config 'name' must be a string, got: {type(name).__name__}")
@@ -82,6 +77,10 @@ class Valve:
         if not isinstance(default_state_str, str):
             raise ValueError(f"Valve config 'default_state' must be a string, got: {type(default_state_str).__name__}")
         
+        try:
+            id = int(config['id'])
+        except (ValueError, TypeError):
+            raise ValueError(f"Valve config 'id' must be an integer, got: {type(config['id']).__name__}")
         try:
             default_state = ValveState[default_state_str.strip().upper()]
         except (KeyError, AttributeError):

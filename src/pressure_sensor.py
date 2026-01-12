@@ -11,20 +11,12 @@ if not settings.MOCK_MODE:
     from adafruit_ads1x15.ads1115 import ADS1115
     from adafruit_ads1x15.analog_in import AnalogIn
 
-# Number of supported pressure sensors
-PS_COUNT = 3
-
-# Minimum possible voltage for pressure sensors
-PS_MIN_VOLTAGE = 0.0
-
-# Maximum possible voltage for pressure sensors
-PS_MAX_VOLTAGE = 5.0
-
-# Minimum possible pressure for pressure sensors (in PSI)
-PS_MIN_PRESSURE = 0.0
-
-# Maximum possible pressure for pressure sensors (in PSI)
-PS_MAX_PRESSURE = 10000.0
+# Pressure sensor argument bounds
+PS_COUNT = 3              # Number of supported pressure sensors
+PS_MIN_VOLTAGE = 0.0      # Minimum possible voltage for pressure sensors
+PS_MAX_VOLTAGE = 5.0      # Maximum possible voltage for pressure sensors
+PS_MIN_PRESSURE = 0.0     # Minimum possible pressure for pressure sensors (in PSI)
+PS_MAX_PRESSURE = 10000.0 # Maximum possible pressure for pressure sensors (in PSI)
 
 if not settings.MOCK_MODE:
     
@@ -104,31 +96,27 @@ class PressureSensor:
             raise KeyError(f"Pressure sensor config missing key: 'pressure_range.min'")
         if 'max' not in config['pressure_range']:
             raise KeyError(f"Pressure sensor config missing key: 'pressure_range.max'")
-        
-        try:
-            id = int(config['id'])
-        except (ValueError, TypeError):
-            raise ValueError(f"Pressure sensor config 'id' must be an integer, got: {type(config['id']).__name__}")
-        
+                
         name = config['name']
         if not isinstance(name, str):
             raise ValueError(f"Pressure sensor config 'name' must be a string, got: {type(name).__name__}")
         
         try:
+            id = int(config['id'])
+        except (ValueError, TypeError):
+            raise ValueError(f"Pressure sensor config 'id' must be an integer, got: {type(config['id']).__name__}")
+        try:
             min_voltage = float(config['voltage_range']['min'])
         except (ValueError, TypeError):
             raise ValueError(f"Pressure sensor config 'voltage_range.min' must be a number, got: {type(config['voltage_range']['min']).__name__}")
-        
         try:
             max_voltage = float(config['voltage_range']['max'])
         except (ValueError, TypeError):
             raise ValueError(f"Pressure sensor config 'voltage_range.max' must be a number, got: {type(config['voltage_range']['max']).__name__}")
-        
         try:
             min_pressure = float(config['pressure_range']['min'])
         except (ValueError, TypeError):
             raise ValueError(f"Pressure sensor config 'pressure_range.min' must be a number, got: {type(config['pressure_range']['min']).__name__}")
-        
         try:
             max_pressure = float(config['pressure_range']['max'])
         except (ValueError, TypeError):

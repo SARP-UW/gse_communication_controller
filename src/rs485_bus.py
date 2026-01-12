@@ -1,6 +1,6 @@
 from . import settings
-from threading import Thread, Lock
-from time import sleep
+from threading import Thread, Lock, Condition
+from select import select
 
 # Hardware dependent libraries and initialization
 if not settings.MOCK_MODE:
@@ -17,53 +17,63 @@ if not settings.MOCK_MODE:
     # GPIO pin for DE control of RS485 transceiver
     RS485_RE_PIN = board.D6
 
-# Maximum supported baudrate for RS485 bus
-RS485_MAX_BAUDRATE = 2000000
-
-# Minimum supported baudrate for RS485 bus
-RS485_MIN_BAUDRATE = 1200
-
-# Maximum supported data bits for RS485 bus
-RS485_MAX_DATA_BITS = 9
-
-# Minimum supported data bits for RS485 bus
-RS485_MIN_DATA_BITS = 5
-
-# Maximum supported stop bits for RS485 bus
-RS485_MAX_STOP_BITS = 2
-
-# Minimum supported stop bits for RS485 bus
-RS485_MIN_STOP_BITS = 1
+# RS485 bus argument bounds
+RS485_MAX_BAUDRATE = 2000000 # Maximum supported baudrate for RS485 bus
+RS485_MIN_BAUDRATE = 1200    # Minimum supported baudrate for RS485 bus
+RS485_MAX_DATA_BITS = 9      # Maximum supported data bits for RS485 bus
+RS485_MIN_DATA_BITS = 5      # Minimum supported data bits for RS485 bus
+RS485_MAX_STOP_BITS = 2      # Maximum supported stop bits for RS485 bus
+RS485_MIN_STOP_BITS = 1      # Minimum supported stop bits for RS485 bus
 
 class RS485Bus:
     
-    def _tx_update_thread(self) -> None:
+    def _tx_thread(self) -> None:
         """
-        Internal thread which periodically transmits queued messages on the RS485 bus.
+        Internal thread which transmits messages on the RS485 bus.
         """
         while not self._shutdown_flag:
-            if not settings.MOCK_MODE:
-                with self._tx_queue_lock:
-                    if len(self._tx_queue) > 0:
-                        self._de_io.value = True
-                        self._serial.write(self._tx_queue)
-                        self._de_io.value = False
+            
+            # Await data to send before next iteration (or shutdown)
+            with self._tx_thread_condition:
+                self._tx_thread_condition.wait_for(
+                    lambda: (len(self._tx_queue) > 0) or self._shutdown_flag
+                )
+
+            # Check shutdown flag again to catch shutdown during wait_for
+            if not self._shutdown_flag:
+                if not settings.MOCK_MODE:
+                    
+                    # Extract data to send (prevent blocking with serial.write)
+                    queue_data = bytearray()
+                    with self._tx_queue_lock:
+                        queue_data = self._tx_queue.copy()
                         self._tx_queue.clear()
-            else:
-                self._tx_queue.clear()
-            sleep(1.0 / settings.RS485_UPDATE_RATE)
-        
-    def _rx_update_thread(self) -> None:
+
+                    # Enable DE (driver enable) then transmit data
+                    if len(queue_data) > 0:
+                        with self._tx_uart_lock:
+                            self._de_io.value = True
+                            self._serial.write(queue_data)
+                            self._de_io.value = False
+                
+                # Simulate "sending" data by clearing TX queue
+                else:
+                    with self._tx_queue_lock:
+                        self._tx_queue.clear()
+
+    def _rx_thread(self) -> None:
         """
-        Internal thread which periodically receives messages from the RS485 bus.
+        Internal thread which receives messages from the RS485 bus using select().
+        NOTE: "select" sleeps until data is available or timeout occurs
         """
         while not self._shutdown_flag:
             if not settings.MOCK_MODE:
-                data = self._serial.read(self._serial.in_waiting or 1)
-                if data:
-                    with self._rx_queue_lock:
-                        self._rx_queue.extend(data)
-            sleep(1.0 / settings.RS485_RX_UPDATE_RATE)
+                ready, _, _ = select([self._serial], [], [], 0.1)
+                if ready:
+                    data = self._serial.read(self._serial.in_waiting or 1)
+                    if data:
+                        with self._rx_queue_lock:
+                            self._rx_queue.extend(data)
     
     def __init__(self, baudrate: int, data_bits: int, stop_bits: int, parity: str) -> None:
         """
@@ -96,7 +106,9 @@ class RS485Bus:
         self._parity = parity
         self._shutdown_flag = False
         self._tx_queue_lock = Lock()
+        self._tx_uart_lock = Lock()
         self._rx_queue_lock = Lock()
+        self._tx_thread_condition = Condition(self._tx_queue_lock)
         self._tx_queue = bytearray()
         self._rx_queue = bytearray()
         
@@ -120,10 +132,10 @@ class RS485Bus:
             self._re_io.direction = Direction.OUTPUT
             self._re_io.value = False
         
-        self._tx_update_thread = Thread(target = self._tx_update_thread)
-        self._rx_update_thread = Thread(target = self._rx_update_thread)
-        self._tx_update_thread.start()
-        self._rx_update_thread.start()
+        self._tx_thread = Thread(target = self._tx_thread)
+        self._rx_thread = Thread(target = self._rx_thread)
+        self._tx_thread.start()
+        self._rx_thread.start()
 
     @classmethod
     def from_config(cls, config: dict) -> "RS485Bus":
@@ -209,8 +221,11 @@ class RS485Bus:
         """
         if self._shutdown_flag:
             raise RuntimeError("RS485 bus has been shutdown")
-        with self._tx_queue_lock:
+        with self._tx_thread_condition:
             self._tx_queue.extend(data)
+
+            # Inform TX thread that data is available to send
+            self._tx_thread_condition.notify_all()
 
     def read(self) -> bytearray:
         """
@@ -232,4 +247,15 @@ class RS485Bus:
         if self._shutdown_flag:
             raise RuntimeError("RS485 bus has already been shutdown")
         self._shutdown_flag = True
+        
+        # Inform TX thread that _shutdown_flag has been updated
+        with self._tx_thread_condition:
+            self._tx_thread_condition.notify_all()
+        
+        # Only cleanup UART/IO once not in use by tx thread (avoid corrupt transfers)
+        if not settings.MOCK_MODE:
+            with self._tx_uart_lock:
+                self._serial.close()
+                self._de_io.deinit()
+                self._re_io.deinit()
         
