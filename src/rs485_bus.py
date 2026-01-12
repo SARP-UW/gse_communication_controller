@@ -18,12 +18,12 @@ if not settings.MOCK_MODE:
     RS485_RE_PIN = board.D6
 
 # RS485 bus argument bounds
-RS485_MAX_BAUDRATE = 2000000 # Maximum supported baudrate for RS485 bus
-RS485_MIN_BAUDRATE = 1200    # Minimum supported baudrate for RS485 bus
-RS485_MAX_DATA_BITS = 9      # Maximum supported data bits for RS485 bus
-RS485_MIN_DATA_BITS = 5      # Minimum supported data bits for RS485 bus
-RS485_MAX_STOP_BITS = 2      # Maximum supported stop bits for RS485 bus
-RS485_MIN_STOP_BITS = 1      # Minimum supported stop bits for RS485 bus
+RS485_MAX_BAUDRATE = 2000000 # Maximum supported baudrate for the RS485 bus
+RS485_MIN_BAUDRATE = 1200    # Minimum supported baudrate for the RS485 bus
+RS485_MAX_DATA_BITS = 9      # Maximum supported data bits for the RS485 bus
+RS485_MIN_DATA_BITS = 5      # Minimum supported data bits for the RS485 bus
+RS485_MAX_STOP_BITS = 2      # Maximum supported stop bits for the RS485 bus
+RS485_MIN_STOP_BITS = 1      # Minimum supported stop bits for the RS485 bus
 
 class RS485Bus:
     
