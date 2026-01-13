@@ -48,6 +48,7 @@ class Valve:
         self.name = name
         self._default_state = default_state
         self._state = default_state
+        self._shutdown_flag = False
 
         if not settings.MOCK_MODE:
             self._io = DigitalInOut(VALVE_PIN_MAP[id])
@@ -92,6 +93,9 @@ class Valve:
             default_state = default_state
         )
 
+    def __del__(self) -> None:
+        self.shutdown()
+
     def __str__(self) -> str:
         """
         Gets string representation of Valve.
@@ -111,19 +115,23 @@ class Valve:
         Default state of this valve (when not powered).
         """
         return self._default_state
-                
+
     @property
     def state(self) -> ValveState:
         """
-        Current state of this valve.
+        Current state of this valve. Cannot be called after shutdown().
         """
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot get state of valve after shutdown")
         return self._state
         
     @state.setter
     def state(self, new_state: ValveState) -> None:
         """
-        Updates the current state of this valve.
+        Updates the current state of this valve. Cannot be called after shutdown().
         """
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot change state of valve after shutdown")
         if self._state != new_state:
             self._state = new_state
             if not settings.MOCK_MODE:
@@ -131,4 +139,13 @@ class Valve:
                     self._io.value = (new_state == ValveState.OPEN)
                 else:
                     self._io.value = (new_state == ValveState.CLOSED)
+
+    def shutdown(self) -> None:
+        """
+        Shuts down this valve, sets it to its default state.
+        """
+        if not self._shutdown_flag:
+            self._shutdown_flag = True
+            if not settings.MOCK_MODE:
+                self._io.deinit()
             

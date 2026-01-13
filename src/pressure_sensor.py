@@ -190,4 +190,4 @@ class PressureSensor:
             voltage_scale = self._max_voltage - self._min_voltage
             pressure_scale = self._max_pressure - self._min_pressure
             result = ((voltage - self._min_voltage) * (pressure_scale / voltage_scale)) + self._min_pressure
-        return result
+        return result 

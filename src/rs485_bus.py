@@ -170,6 +170,12 @@ class RS485Bus:
         parity = str(config['parity'])
         return cls(baudrate, data_bits, stop_bits, parity)
 
+    def __str__(self) -> str:
+        """
+        Gets string representation of RS485Bus.
+        """
+        return f"RS485Bus(baudrate = {self._baudrate}, data_bits = {self._data_bits}, stop_bits = {self._stop_bits}, parity = {self._parity})"
+
     def __del__(self) -> None:
         self.shutdown()
      

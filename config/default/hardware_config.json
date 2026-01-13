@@ -37,7 +37,7 @@
             }
         }
     ],
-    "valve_config": [
+    "flight_computer_valve_config": [
         {
             "id": 1,
             "name": "Main Valve",
@@ -52,8 +52,17 @@
             "id": 3,
             "name": "Tertiary Valve",
             "default_state": "closed"
+        },
+        {
+            "id": 4,
+            "name": "Quaternary Valve",
+            "default_state": "closed"
         }
     ],
+    "qdc_actuator_config": {
+        "wire_1_locked_state": "high",
+        "wire_2_locked_state": "low"
+    },
     "rs485_config": {
         "baudrate": 115200,
         "data_bits": 8,
@@ -63,5 +72,35 @@
     "radio_config": {
         "radio_config_file": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\config\\default\\radio_config.c",
         "channel": 0
+    },
+    "flight_computer_config": {
+        "status_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\flight_computer_status_log.txt",
+        "fc_sensor_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\flight_computer_sensor_log.txt",
+        "pst_sensor_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\pst_sensor_log.txt",
+        "system_state_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\system_state_log.txt",
+        "flight_computer_commands": [
+            {
+                "name": "Start ox tank fill",
+                "tag": 1,
+                "args": [
+                    "test_arg"
+                ]
+            },
+            {
+                "name": "End ox tank fill",
+                "tag": 2,
+                "args": []
+            },
+            {
+                "name": "Launch",
+                "tag": 3,
+                "args": []
+            },
+            {
+                "name": "Safe system",
+                "tag": 4,
+                "args": []
+            }
+        ]
     }
 }

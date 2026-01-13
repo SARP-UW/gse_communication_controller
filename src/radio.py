@@ -217,15 +217,23 @@ class Radio:
         matches = re.finditer(pattern, content, re.DOTALL | re.MULTILINE)
         
         radio_properties = []
+        self._radio_property_str: str = ""
         for match in matches:
+            property_name = match.group(1)
             num_properties = int(match.group(2))
             group_id = int(match.group(3), 16)
             start_id = int(match.group(4), 16)
             bytes_str = match.group(5)
             
+            # Append property to string for use in __str__ method
+            self._radio_property_str += f"({property_name}: {bytes_str}), "
+            
             # Parse the byte values from list in the #define (property args) and create a bytearray from it
             bytes_list = [int(b.strip(), 16) for b in bytes_str.split(',')]
             radio_properties.append(bytearray([group_id, num_properties, start_id] + bytes_list))
+        
+        # Get rid of trailing comma and space (added after each property - dont want it at end)
+        self._radio_property_str = self._radio_property_str.rstrip(', ')
         
         if len(radio_properties) != 31:
             raise ValueError(f"Invalid number of radio properties: {len(radio_properties)} != 31 (config file is likely incorrect)")
@@ -283,9 +291,29 @@ class Radio:
             radio_config_path = radio_config_path,
             channel = channel
         )
- 
+
+    def __str__(self) -> str:
+        """
+        Gets a string representation of the Radio.
+        """
+        return f"Radio(radio_config_path = {self._radio_config_path}, channel = {self._channel}, radio_properties = {self._radio_property_str})"
+
     def __del__(self) -> None:
         self.shutdown()
+
+    @property
+    def radio_config_path(self) -> str:
+        """
+        Gets the path to the radio configuration file.
+        """
+        return self._radio_config_path
+
+    @property
+    def channel(self) -> int:
+        """
+        Gets the channel used by the radio transceiver.
+        """
+        return self._channel
 
     def transmit(self, packets: List[bytearray]) -> None:
         """

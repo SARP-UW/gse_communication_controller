@@ -34,8 +34,8 @@ class Logger:
         """
         Gets string representation of Logger.
         """
-        return f"Logger(path = {self._path}, col = {self._col})"
-        
+        return f"Logger(path = {self._path}, col = {self._col})"    
+    
     @property
     def path(self) -> str:
         """
