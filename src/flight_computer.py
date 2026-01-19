@@ -1,7 +1,7 @@
 from src.radio import Radio
 from src.rs485_bus import RS485Bus
 from src.qdc_actuator import QDCActuator
-from src.valve import Valve
+from passthrough_valve import Valve
 from src.pressure_sensor import PressureSensor
 from src.logger import Logger
 from typing import Dict, List
@@ -36,84 +36,72 @@ from typing import Dict, List
     # 8 servo outputs
     
 # Downlink Packets (from FC to CC):
-    # GENERAL FORMAT:
-    # <TAG> <ALT TAG (?)> <DATA>
 
     # Sensor data packet:
-        # Length: 52 bytes
-        # FORMAT:
-            # <0x00>
-            # <IMU 1 accel x (2 bytes)>
-            # <IMU 1 accel y (2 bytes)>
-            # <IMU 1 accel z (2 bytes)>
-            # <IMU 1 gyro x (2 bytes)>
-            # <IMU 1 gyro y (2 bytes)>
-            # <IMU 1 gyro z (2 bytes)>
-            # <IMU 2 accel x (2 bytes)>
-            # <IMU 2 accel y (2 bytes)>
-            # <IMU 2 accel z (2 bytes)>
-            # <IMU 2 gyro x (2 bytes)>
-            # <IMU 2 gyro y (2 bytes)>
-            # <IMU 2 gyro z (2 bytes)>
-            # <Magnetometer 1 mag x (2 bytes)>
-            # <Magnetometer 1 mag y (2 bytes)>
-            # <Magnetometer 1 mag z (2 bytes)>
-            # <Magnetometer 2 mag x (2 bytes)>
-            # <Magnetometer 2 mag y (2 bytes)>
-            # <Magnetometer 2 mag z (2 bytes)>
-            # <Barometer 1 pressure (3 bytes)>
-            # <Barometer 2 pressure (3 bytes)>
-            # <Temperature sensor 1 temperature (2 bytes)>
-            # <Temperature sensor 2 temperature (2 bytes)>
-            # <Current sensor 1 current (2 bytes)>
-            # <Current sensor 2 current (2 bytes)>
-            # <Current sensor 3 current (2 bytes)>
+        # 0x00
+        # <IMU 1 accel x (2 bytes)>
+        # <IMU 1 accel y (2 bytes)>
+        # <IMU 1 accel z (2 bytes)>
+        # <IMU 1 gyro x (2 bytes)>
+        # <IMU 1 gyro y (2 bytes)>
+        # <IMU 1 gyro z (2 bytes)>
+        # <IMU 2 accel x (2 bytes)>
+        # <IMU 2 accel y (2 bytes)>
+        # <IMU 2 accel z (2 bytes)>
+        # <IMU 2 gyro x (2 bytes)>
+        # <IMU 2 gyro y (2 bytes)>
+        # <IMU 2 gyro z (2 bytes)>
+        # <Magnetometer 1 mag x (2 bytes)>
+        # <Magnetometer 1 mag y (2 bytes)>
+        # <Magnetometer 1 mag z (2 bytes)>
+        # <Magnetometer 2 mag x (2 bytes)>
+        # <Magnetometer 2 mag y (2 bytes)>
+        # <Magnetometer 2 mag z (2 bytes)>
+        # <Barometer 1 pressure (3 bytes)>
+        # <Barometer 2 pressure (3 bytes)>
+        # <Temperature sensor 1 temperature (2 bytes)>
+        # <Temperature sensor 2 temperature (2 bytes)>
+        # <Current sensor 1 current (2 bytes)>
+        # <Current sensor 2 current (2 bytes)>
+        # <Current sensor 3 current (2 bytes)>
 
     # GPS data packet
-        # Length: 22 bytes
-        # FORMAT:
-            # <0x01>
-            # <Latitude (4 bytes)>
-            # <Longitude (4 bytes)>
-            # <Altitude (4 bytes)>
-            # <Velocity x (2 bytes)>
-            # <Velocity y (2 bytes)>
-            # <Velocity z (2 bytes)>
-            # <Time (4 bytes)>
+        # 0x01
+        # <Latitude (4 bytes)>
+        # <Longitude (4 bytes)>
+        # <Altitude (4 bytes)>
+        # <Velocity x (2 bytes)>
+        # <Velocity y (2 bytes)>
+        # <Velocity z (2 bytes)>
+        # <Time (4 bytes)>
             
     # ADC data packet
-        # Length: <?> (max 64 bytes)
-        # FORMAT:
-            # <0x02>
-            # <?> (alt tag, 1 byte)
-            # <?> (data, variable length)
-        # Alt tag:
-            # Denotes target packet mapping to use in config (adc_sensor_protocol)
-        # Data:
-            # 3 byte data points ordered according to index in target packet mapping.
+        # 0x02
+        # <packet index (1 byte)>
+        # <data point (3 bytes)> (repeat for each sensor in adc config for this packet index)
+            
+    # State packet
+        # 0x03
+        # <valve state (1 bit)> (repeat for each valve in status protocol, pad to byte boundary)
+        # <servo state (2 bytes)> (repeat for each servo in status protocol)
 
-            
     # Status packet
-        # Length: <?> (max 64 bytes)
-        # FORMAT:
-            # <0x03>
-            # <?> (data)
-        # Data packet:
-            # Variable size data points ordered according to index in config (status_protocol)
-            # If "type" of data point is "valve" data is 1 bit (0 = closed, 1 = open)
-            # If "type" of data point is "continuous_servo" data is 2 bytes (map 0 - "max_value" to 0 - "max_speed" deg/s)
-            # If "type" of data point is "linear_servo" data is 2 bytes (map 0 - "max_value" to 0 - 100% extension)
-            # If "type" of data point is "positional_servo" data is 2 bytes (map 0 - "max_value" to 0 - 360 degrees)             
-            
-    # Message packet
-        # Length: 2 bytes
-        # FORMAT:
-            # <0x04>
-            # <?> (message ID, 1 byte)
-        # Message ID:
-            # Denotes specific message ID in config (message_protocol)
-    
-            
+        # 0x04
+        # <active command type (1 byte)> <active command tag (1 byte)> <active command arguments (variable length)> (repeated for each active command)
+        # 0x00
+        # <completed command type (1 byte)> <completed command tag (1 byte)> <completed command arguments (variable length)> (repeated for each completed command)
+        # 0x00
+        # <failed command type (1 byte)> <failed command tag (1 byte)> <failed command arguments (variable length)> (repeated for each failed command)
+        # 0x00
+        # <message tag (1 byte)> (repeated for each desired message)
+        
+                    
+# Uplink Packets (from CC to FC):
+
+    # Command packet
+        # 0x00
+        # <command type (1 byte)> <command tag (1 byte)> <command arguments (variable length)> (repeated for each desired command)
+                   
 
 FLIGHT_COMPUTER_RX_PROTOCOL = {
     "sensor"

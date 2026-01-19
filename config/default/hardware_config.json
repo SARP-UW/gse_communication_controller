@@ -1,176 +1,171 @@
 {
-    "pressure_sensor_config": [
-        {
-            "id": 1,
-            "name": "Main Pressure Sensor",
-            "voltage_range": {
-                "min": 0,
-                "max": 5
-            },
-            "pressure_range": {
-                "min": 0, 
-                "max": 1000
-            }
-        },
-        {
-            "id": 2,
-            "name": "Secondary Pressure Sensor",
-            "voltage_range": {
-                "min": 0,
-                "max": 5
-            },
-            "pressure_range": {
-                "min": 0, 
-                "max": 1000
-            }
-        },
-        {
-            "id": 3,
-            "name": "Tertiary Pressure Sensor",
-            "voltage_range": {
-                "min": 0,
-                "max": 5
-            },
-            "pressure_range": {
-                "min": 0, 
-                "max": 1000
-            }
-        }
-    ],
-    "flight_computer_valve_config": [
-        {
-            "id": 1,
-            "name": "Main Valve",
-            "default_state": "closed"
-        },
-        {
-            "id": 2,
-            "name": "Secondary Valve",
-            "default_state": "closed"
-        },
-        {
-            "id": 3,
-            "name": "Tertiary Valve",
-            "default_state": "closed"
-        },
-        {
-            "id": 4,
-            "name": "Quaternary Valve",
-            "default_state": "closed"
-        }
-    ],
-    "qdc_actuator_config": {
+    "qdc_actuator": {
         "wire_1_locked_state": "high",
         "wire_2_locked_state": "low"
     },
-    "rs485_config": {
+    "rs485_bus": {
         "baudrate": 115200,
         "data_bits": 8,
         "stop_bits": 1,
         "parity": "N"
     },
-    "radio_config": {
-        "radio_config_file": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\config\\default\\radio_config.c",
+    "radio": {
+        "config_file": "__rel__\\config\\default\\radio_config.c",
         "channel": 0
     },
-    "flight_computer_config": {
-        "status_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\flight_computer_status_log.txt",
-        "fc_sensor_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\flight_computer_sensor_log.txt",
-        "pst_sensor_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\pst_sensor_log.txt",
-        "system_state_log_path": "C:\\Users\\aaron\\files\\sarp\\gse_communication_controller\\logs\\system_state_log.txt",
-        "commands": [
+    "flight_computer": {
+        "sensor_log_path": "__rel__\\..\\..\\logs\\flight_computer_sensor_log.txt",
+        "state_log_path": "__rel__\\..\\..\\logs\\system_state_log.txt",
+        "status_log_path": "__rel__\\..\\..\\logs\\flight_computer_status_log.txt",
+        "adc_sensors": [
             {
-                "name": "Start ox tank fill",
+                "protocol_index": 1,
+                "packet_index": 1,
+                "name": "ADC sensor 1",
+                "type": "pressure"
+            },
+            {
+                "protocol_index": 2,
+                "packet_index": 1,
+                "name": "ADC sensor 2",
+                "type": "temperature"
+            },
+            {
+                "protocol_index": 1,
+                "packet_index": 2,
+                "name": "ADC sensor 3",
+                "type": "force"
+            }
+        ],
+        "valves": [
+            {
+                "protocol_index": 1,
+                "name": "Valve 1"
+            },
+            {
+                "protocol_index": 2,
+                "name": "Valve 2"
+            }
+        ],
+        "servos": [
+            {
+                "protocol_index": 1,
+                "name": "Servo 1",
+                "type": "continuous",
+                "max_value": 1000,
+                "max_speed": 100
+            },
+            {
+                "protocol_index": 2,
+                "name": "Servo 2",
+                "type": "positional",
+                "max_value": 1000,
+                "angle_range": {
+                    "min": 0,
+                    "max": 180
+                }
+            },
+            {
+                "protocol_index": 3,
+                "name": "Servo 3",
+                "type": "linear",
+                "max_value": 1000 
+            }
+        ],
+        "passthrough_pressure_sensors": [
+            {
+                "input": 1,
+                "name": "Passthrough pressure sensor 1",
+                "voltage_range": {
+                    "min": 0.5,
+                    "max": 4.5
+                },
+                "pressure_range": {
+                    "min": 0,
+                    "max": 1000
+                }
+            },
+            {
+                "input": 2,
+                "name": "Passthrough pressure sensor 2",
+                "voltage_range": {
+                    "min": 0.5,
+                    "max": 4.5
+                },
+                "pressure_range": {
+                    "min": 0,
+                    "max": 1000
+                }
+            },
+            {
+                "input": 3,
+                "name": "Passthrough pressure sensor 3",
+                "voltage_range": {
+                    "min": 0.5,
+                    "max": 4.5
+                },
+                "pressure_range": {
+                    "min": 0,
+                    "max": 1000
+                }
+            }
+        ],
+        "passthrough_valves": [
+            {
+                "input": 1,
+                "name": "Passthrough valve 1",
+                "default_state": "closed"
+            },
+            {
+                "input": 2,
+                "name": "Passthrough valve 2",
+                "default_state": "closed"
+            },
+            {
+                "input": 3,
+                "name": "Passthrough valve 3",
+                "default_state": "closed"
+            },
+            {
+                "input": 4,
+                "name": "Passthrough valve 4",
+                "default_state": "closed"
+            }
+        ],
+        "custom_commands": [
+            {
                 "tag": 1,
-                "args": [
-                    "test_arg"
-                ]
+                "name": "Custom command 1",
+                "description": "This is the first custom command."
             },
             {
-                "name": "End ox tank fill",
                 "tag": 2,
-                "args": []
-            },
-            {
-                "name": "Launch",
-                "tag": 3,
-                "args": []
-            },
-            {
-                "name": "Safe system",
-                "tag": 4,
-                "args": []
-            }
-        ],
-        "adc_sensor_protocol": [
-            {
-                "packet_alt_tag": 1,
-                "data_list": [
+                "name": "Custom command 2",
+                "description": "This is the second custom command.",
+                "args": [
                     {
-                        "index": 0,
-                        "type": "pressure",
-                        "name": "Pressure 1"
+                        "protocol_index": 1,
+                        "name": "Argument 1",
+                        "description": "This is the first argument.",
+                        "length": 1
                     },
                     {
-                        "index": 1,
-                        "type": "temperature",
-                        "name": "Temperature 1"
-                    }
-                ]
-            },
-            {
-                "packet_alt_tag": 2,
-                "data_list": [
-                    {
-                        "index": 0,
-                        "type": "pressure",
-                        "name": "Pressure 2"
-                    },
-                    {
-                        "index": 1,
-                        "type": "force",
-                        "name": "Force 1"
+                        "protocol_index": 2,
+                        "name": "Argument 2",
+                        "description": "This is the second argument.",
+                        "length": 2
                     }
                 ]
             }
         ],
-        "status_protocol": [
+        "status_messages": [
             {
-                "index": 0,
-                "type": "valve",
-                "name": "Main valve"
+                "tag": 1,
+                "message": "This is status message 1." 
             },
             {
-                "index": 1,
-                "type": "continuous_servo",
-                "name": "Continuous servo 1",
-                "max_speed": 150.0,
-                "max_value": 255
-            },
-            {
-                "index": 2,
-                "type": "linear_servo",
-                "name": "Linear servo 1",
-                "max_value": 255
-            },
-            {
-                "index": 3,
-                "type":  "positional_servo",
-                "max_value": 255
-            }
-        ],
-        "message_protocol": [
-            {
-                "message_tag": 1,
-                "message": "Error type 1"
-            },
-            {
-                "message_tag": 2,
-                "message": "Error type 2"
-            },
-            {
-                "message_tag": 3,
-                "message": "Error type 3"
+                "tag": 2,
+                "message": "This is status message 2."
             }
         ]
     }
