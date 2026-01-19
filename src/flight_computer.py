@@ -87,20 +87,20 @@ from typing import Dict, List
 
     # Status packet
         # 0x04
-        # <active command type (1 byte)> <active command tag (1 byte)> <active command arguments (variable length)> (repeated for each active command)
-        # 0x00
-        # <completed command type (1 byte)> <completed command tag (1 byte)> <completed command arguments (variable length)> (repeated for each completed command)
-        # 0x00
-        # <failed command type (1 byte)> <failed command tag (1 byte)> <failed command arguments (variable length)> (repeated for each failed command)
-        # 0x00
-        # <message tag (1 byte)> (repeated for each desired message)
+        # <last command state (1 byte)>
+        # <last command type (1 byte)> (optional
+        # <last command tag (1 byte)> (optional)
+        # <last command arguments (variable length)> (optional)
+        # <message tag (1 byte)> (repeated for each desired message) (optional)
         
                     
 # Uplink Packets (from CC to FC):
 
     # Command packet
         # 0x00
-        # <command type (1 byte)> <command tag (1 byte)> <command arguments (variable length)> (repeated for each desired command)
+        # <command type (1 byte)>
+        # <command tag (1 byte)>
+        # <command arguments (variable length)>
                    
 
 FLIGHT_COMPUTER_RX_PROTOCOL = {
@@ -122,4 +122,5 @@ class FlightComputer:
         """
         
             
+    
     
