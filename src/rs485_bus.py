@@ -137,7 +137,8 @@ class RS485Bus:
             self._re_io.value = False
         
         self._tx_thread: Thread = Thread(target = self._tx_thread)
-        self._rx_thread: Thread = Thread(target = self._rx_thread)
+        if not settings.MOCK_MODE :
+            self._rx_thread: Thread = Thread(target = self._rx_thread)
         self._tx_thread.start()
         self._rx_thread.start()
 

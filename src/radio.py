@@ -333,6 +333,13 @@ class Radio:
         """
         return self._channel
 
+    @property
+    def is_shutdown(self) -> bool:
+        """
+        True if Radio has been shutdown, false otherwise.
+        """
+        return self._shutdown_flag
+
     def transmit(self, packets: List[bytearray]) -> None:
         """
         Transmits the given list of packets using the radio transceiver. Note that while transmitting, 
