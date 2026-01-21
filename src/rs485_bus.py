@@ -8,14 +8,10 @@ if not settings.MOCK_MODE:
     import board
     from digitalio import DigitalInOut, Direction
     
-    # UART port for RS485 bus
-    RS485_PORT = '/dev/ttyS0'
-
-    # GPIO pin for RE control of RS485 transceiver
-    RS485_DE_PIN = board.D5
-    
-    # GPIO pin for DE control of RS485 transceiver
-    RS485_RE_PIN = board.D6
+    # Pins for RS485 bus transciever
+    RS485_PORT = '/dev/ttyS0' # Transciever serial (UART) port
+    RS485_DE_PIN = board.D5   # Transciever driver enable pin
+    RS485_RE_PIN = board.D6   # Transciever receiver enable pin
 
 # RS485 bus argument bounds
 RS485_MAX_BAUDRATE = 2000000 # Maximum supported baudrate for the RS485 bus
@@ -24,6 +20,9 @@ RS485_MAX_DATA_BITS = 9      # Maximum supported data bits for the RS485 bus
 RS485_MIN_DATA_BITS = 5      # Minimum supported data bits for the RS485 bus
 RS485_MAX_STOP_BITS = 2      # Maximum supported stop bits for the RS485 bus
 RS485_MIN_STOP_BITS = 1      # Minimum supported stop bits for the RS485 bus
+
+# Tracks initialization of RS485 bus
+rs485_bus_init: bool = False
 
 class RS485Bus:
     
@@ -100,20 +99,25 @@ class RS485Bus:
         if parity not in ['N', 'E', 'O', 'M', 'S']:
             raise ValueError(f"RS485 bus has invalid parity: {parity} not in ['N', 'E', 'O', 'M', 'S']")
         
-        self._baudrate = baudrate
-        self._data_bits = data_bits
-        self._stop_bits = stop_bits
-        self._parity = parity
-        self._shutdown_flag = False
-        self._tx_queue_lock = Lock()
-        self._tx_uart_lock = Lock()
-        self._rx_queue_lock = Lock()
-        self._tx_thread_condition = Condition(self._tx_queue_lock)
-        self._tx_queue = bytearray()
-        self._rx_queue = bytearray()
+        # Ensure only one RS485 bus is initialized (due to shared state in component)
+        if rs485_bus_init:
+            raise RuntimeError("RS485 bus has already been initialized")
+        rs485_bus_init = True
+        
+        self._baudrate: int = baudrate
+        self._data_bits: int = data_bits
+        self._stop_bits: int = stop_bits
+        self._parity: str = parity
+        self._shutdown_flag: bool = False
+        self._tx_queue_lock: Lock = Lock()
+        self._tx_uart_lock: Lock = Lock()
+        self._rx_queue_lock: Lock = Lock()
+        self._tx_thread_condition: Condition = Condition(self._tx_queue_lock)
+        self._tx_queue: bytearray = bytearray()
+        self._rx_queue: bytearray = bytearray()
         
         if not settings.MOCK_MODE:
-            self._serial = Serial(
+            self._serial: Serial = Serial(
                 port = RS485_PORT,
                 baudrate = baudrate,
                 bytesize = data_bits,
@@ -123,18 +127,18 @@ class RS485Bus:
             )
             
             # DE pin enables transmitter when HIGH
-            self._de_io = DigitalInOut(RS485_DE_PIN)
+            self._de_io: DigitalInOut = DigitalInOut(RS485_DE_PIN)
             self._de_io.direction = Direction.OUTPUT
             self._de_io.value = False
             
             # RE pin enables receiver when LOW
-            self._re_io = DigitalInOut(RS485_RE_PIN)
+            self._re_io: DigitalInOut = DigitalInOut(RS485_RE_PIN)
             self._re_io.direction = Direction.OUTPUT
             self._re_io.value = False
         
-        self._tx_thread = Thread(target = self._tx_thread)
+        self._tx_thread: Thread = Thread(target = self._tx_thread)
         if not settings.MOCK_MODE :
-            self._rx_thread = Thread(target = self._rx_thread)
+            self._rx_thread: Thread = Thread(target = self._rx_thread)
         self._tx_thread.start()
         self._rx_thread.start()
 
@@ -155,6 +159,10 @@ class RS485Bus:
         if 'parity' not in config:
             raise KeyError(f"RS485 bus config missing key: 'parity'")
         
+        parity = str(config['parity'])
+        if not isinstance(parity, str):
+            raise ValueError(f"RS485 bus has invalid parity: {config['parity']}")
+        
         try:
             baudrate = int(config['baudrate'])
         except Exception as e:
@@ -168,25 +176,37 @@ class RS485Bus:
         except Exception as e:
             raise ValueError(f"RS485 bus has invalid stop bits: {config['stop_bits']}") from e
         
-        parity = str(config['parity'])
-        return cls(baudrate, data_bits, stop_bits, parity)
+        return cls(
+            baudrate = baudrate, 
+            data_bits = data_bits, 
+            stop_bits = stop_bits, 
+            parity = parity
+        )
 
     def __str__(self) -> str:
         """
-        Gets string representation of RS485Bus.
+        Gets string representation of RS485Bus (ommits current state info).
         """
         return f"RS485Bus(baudrate = {self._baudrate}, data_bits = {self._data_bits}, stop_bits = {self._stop_bits}, parity = {self._parity})"
 
     def __del__(self) -> None:
+        """
+        Destructor for RS485Bus - shuts down the bus.
+        """
         self.shutdown()
+
+    @property
+    def is_shutdown(self) -> bool:
+        """
+        True if RS485 bus has been shutdown, false otherwise.
+        """
+        return self._shutdown_flag
      
     @property
     def baudrate(self) -> int:
         """
         Baudrate of RS485 bus.
         """
-        if self._shutdown_flag:
-            raise RuntimeError("RS485 bus has been shutdown")
         return self._baudrate
         
     @property
@@ -194,8 +214,6 @@ class RS485Bus:
         """
         Number of data bits for RS485 bus.
         """
-        if self._shutdown_flag:
-            raise RuntimeError("RS485 bus has been shutdown")
         return self._data_bits
         
     @property
@@ -211,13 +229,6 @@ class RS485Bus:
         Parity for RS485 bus.
         """
         return self._parity
-
-    @property
-    def is_shutdown(self) -> bool:
-        """
-        True if RS485 bus has been shutdown, false otherwise.
-        """
-        return self._shutdown_flag
 
     def write(self, data: bytearray) -> None:
         """
@@ -253,6 +264,7 @@ class RS485Bus:
         """
         if self._shutdown_flag:
             raise RuntimeError("RS485 bus has already been shutdown")
+        rs485_bus_init = False
         self._shutdown_flag = True
         
         # Inform TX thread that _shutdown_flag has been updated

@@ -1,5 +1,12 @@
 from typing import List
 from datetime import datetime
+from pathlib import Path
+
+# Path to project root directory (for use in relative paths)
+LOGGER_PROJECT_DIR_PATH = str(Path(__file__).parent.parent)
+
+# Relative path keyword
+LOGGER_RELATIVE_PATH_KEYWORD = "__rel__"
 
 class Logger:
     """
@@ -16,10 +23,17 @@ class Logger:
         """
         if len(col) == 0:
             raise ValueError("Logger must have at least one column")
-        self._path = path
-        self._col = col
+        
+        # Replace relative path keyword with actual project directory path if present (start of string only!)
+        full_path = path
+        if path.startswith(LOGGER_RELATIVE_PATH_KEYWORD):
+            full_path = LOGGER_PROJECT_DIR_PATH + path[len(LOGGER_RELATIVE_PATH_KEYWORD):]
+            
+        self._path: str = full_path
+        self._col: List[str] = col
+        
+        # Write CSV header only if matching one does not already exist at top of file
         try:
-            # Write CSV header only if matching one does not already exist at top of file
             with open(self._path, 'r') as file:
                 first_line = file.readline().strip()
                 expected_header = "timestamp, " + ", ".join(col)

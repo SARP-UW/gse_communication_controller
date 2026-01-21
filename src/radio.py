@@ -50,6 +50,9 @@ RADIO_FIFO_INFO_RESET_TX_FIFO_ARG = 0x01                            # Mask to se
 RADIO_START_TX_CONDITION_ARG = 0b00000011                           # Condition arg for START_TX - Ready state after transmission, enter tx mode, start immediately
 RADIO_ENTER_RX_NCH_ARGS = bytearray([0x00, 0x00, 0x08, 0x08, 0x08]) # Arguments for START_RX command (ommiting channel) (no condition, variable length, keep trying to receive)
 
+# Tracks initialization of radio transceiver
+radio_init: bool = False
+
 class Radio:
     
     def _wait_cts(self) -> bool:
@@ -168,25 +171,30 @@ class Radio:
         if channel > RADIO_MAX_CHANNEL:
             raise ValueError(f"Invalid channel number: {channel} > {RADIO_MAX_CHANNEL}")
         
-        self._radio_config_path = radio_config_path
-        self._channel = channel
-        self._shutdown_flag = False
-        self._tx_queue_lock = Lock()
-        self._rx_queue_lock = Lock()
-        self._spi_bus_lock = Lock()
-        self._tx_thread_condition = Condition(self._tx_queue_lock)
+        # Ensure only one Radio is ever initialized (due to shared state in component)
+        if radio_init:
+            raise RuntimeError("Radio has already been initialized")
+        radio_init = True
+        
+        self._radio_config_path: str = radio_config_path
+        self._channel: int = channel
+        self._shutdown_flag: bool = False
+        self._tx_queue_lock: Lock = Lock()
+        self._rx_queue_lock: Lock = Lock()
+        self._spi_bus_lock: Lock = Lock()
+        self._tx_thread_condition: Condition = Condition(self._tx_queue_lock)
         self._tx_queue: List[bytearray] = []
         self._rx_queue: List[bytearray] = []
         
         if not settings.MOCK_MODE:
-            self._reset_io = DigitalInOut(RADIO_RESET_PIN)
+            self._reset_io: DigitalInOut = DigitalInOut(RADIO_RESET_PIN)
             self._reset_io.direction = Direction.OUTPUT
             self._reset_io.value = False
             
             RPIO.setmode(RPIO.BCM)
             RPIO.setup(RADIO_NIRQ_PIN, RPIO.IN)
             
-            self._spi_bus = SpiDev(
+            self._spi_bus: SpiDev = SpiDev(
                 bus = 0,
                 device = 0,
             )
@@ -262,7 +270,7 @@ class Radio:
             self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
             self._wait_cts()
 
-        self._tx_thread = Thread(target=self._tx_thread)
+        self._tx_thread: Thread = Thread(target=self._tx_thread)
         self._tx_thread.start()
               
     @classmethod
@@ -294,12 +302,22 @@ class Radio:
 
     def __str__(self) -> str:
         """
-        Gets a string representation of the Radio.
+        Gets a string representation of the Radio (ommits current state info).
         """
         return f"Radio(radio_config_path = {self._radio_config_path}, channel = {self._channel}, radio_properties = {self._radio_property_str})"
 
     def __del__(self) -> None:
+        """
+        Destructor for Radio - shuts down the radio transceiver.
+        """
         self.shutdown()
+
+    @property
+    def is_shutdown(self) -> bool:
+        """
+        True if the radio transceiver has been shutdown, false otherwise.
+        """
+        return self._shutdown_flag
 
     @property
     def radio_config_path(self) -> str:
@@ -325,7 +343,7 @@ class Radio:
     def transmit(self, packets: List[bytearray]) -> None:
         """
         Transmits the given list of packets using the radio transceiver. Note that while transmitting, 
-        the radio cannot receive packets. This method cannot be called after shutdown().
+        the radio cannot receive packets. Cannot be called after shutdown.
         
         Args:
             packets: The list of packets to transmit (bytearray of data).
@@ -360,10 +378,20 @@ class Radio:
     
     def shutdown(self) -> None:
         """
-        Shuts down the radio transceiver and stops all internal threads.
+        Shuts down the radio transceiver and stops all internal threads (blocks until all packets sent).
         """
         if self._shutdown_flag:
             raise RuntimeError("Radio is already shutdown")
+        
+        # Wait until all queued packets have been sent or timeout
+        start_time = time()
+        while (time() - start_time) < settings.RADIO_SHUTDOWN_TIMEOUT:
+            with self._tx_queue_lock:
+                if len(self._tx_queue) == 0:
+                    break
+            sleep(0.01)
+        
+        radio_init = False
         self._shutdown_flag = True
 
         # Inform TX thread that _shutdown_flag has been updated
