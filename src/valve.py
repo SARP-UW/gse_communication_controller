@@ -124,6 +124,13 @@ class Valve:
         if self._shutdown_flag:
             raise RuntimeError("Cannot get state of valve after shutdown")
         return self._state
+    
+    @property
+    def is_shutdown(self) -> bool:
+        """
+        True if Valve has been shutdown, false otherwise.
+        """
+        return self._shutdown_flag
         
     @state.setter
     def state(self, new_state: ValveState) -> None:

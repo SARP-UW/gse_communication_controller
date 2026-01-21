@@ -99,6 +99,13 @@ class QDCActuator:
             raise RuntimeError("Cannot get state of QDC actuator after shutdown")
         return self._state
     
+    @property
+    def is_shutdown(self) -> bool:
+        """
+        True if QDC actuator has been shutdown, false otherwise.
+        """
+        return self._shutdown_flag
+    
     @state.setter
     def state(self, new_state: QDCActuatorState) -> None:
         """
