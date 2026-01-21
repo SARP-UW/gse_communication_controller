@@ -88,7 +88,7 @@ from typing import Dict, List
     # Status packet
         # 0x04
         # <last command state (1 byte)>
-        # <last command type (1 byte)> (optional
+        # <last command type (1 byte)> (optional)
         # <last command tag (1 byte)> (optional)
         # <last command arguments (variable length)> (optional)
         # <message tag (1 byte)> (repeated for each desired message) (optional)
@@ -102,6 +102,21 @@ from typing import Dict, List
         # <command tag (1 byte)>
         # <command arguments (variable length)>
                    
+# More info:
+
+    # Command state values
+        # 0x00 Command waiting
+        # 0x01 Command in progress
+        # 0x02 Command completed successfully
+        # 0x03 Command failed due to invalid tag
+        # 0x04 Command failed due to invalid arguments
+        # 0x05 Command failed due to out of range arguments
+        # 0x06 Command failed due to hardware error
+        # 0x07 Command failed due to timeout
+        # 0x08 Command failed due to invalid system state
+        # 0x09 Command aborted by flight computer
+        # 0x010 Command failed to 
+
 
 FLIGHT_COMPUTER_RX_PROTOCOL = {
     "sensor"
