@@ -1,8 +1,8 @@
 from src.radio import Radio
 from src.rs485_bus import RS485Bus
 from src.qdc_actuator import QDCActuator
-from passthrough_valve import Valve
-from src.pressure_sensor import PressureSensor
+from src.passthrough_valve import PassthroughValve
+from src.passthrough_pressure_sensor import PassthroughPressureSensor
 from src.logger import Logger
 from typing import Dict, List
 
@@ -102,39 +102,97 @@ from typing import Dict, List
         # <command tag (1 byte)>
         # <command arguments (variable length)>
                    
-# More info:
+    # More info:
 
-    # Command state values
-        # 0x00 Command waiting
-        # 0x01 Command in progress
-        # 0x02 Command completed successfully
-        # 0x03 Command failed due to invalid tag
-        # 0x04 Command failed due to invalid arguments
-        # 0x05 Command failed due to out of range arguments
-        # 0x06 Command failed due to hardware error
-        # 0x07 Command failed due to timeout
-        # 0x08 Command failed due to invalid system state
-        # 0x09 Command aborted by flight computer
-        # 0x010 Command failed to 
-
-
-FLIGHT_COMPUTER_RX_PROTOCOL = {
-    "sensor"
-}
+        # Command state values
+            # 0x00 Command waiting
+            # 0x01 Command in progress
+            # 0x02 Command completed successfully
+            # 0x03 Command failed due to invalid tag
+            # 0x04 Command failed due to invalid arguments
+            # 0x05 Command failed due to out of range arguments
+            # 0x06 Command failed due to hardware error
+            # 0x07 Command failed due to timeout
+            # 0x08 Command failed due to invalid system state
+            # 0x09 Command aborted by flight computer
+            
+        # Command types
+            # 0x00 Static command
+            # 0x01 Custom command
+            
+        # Static command tags and args
+            
+            # Change valve state
+                # 0x00
+                # <valve id (1 byte)>
+                # <new state (1 byte)> (0 = closed, 1 = open)
+                
+            # Pulse valve
+                # 0x01
+                # <valve id (1 byte)>
+                # <pulse duration (2 bytes)> (in milliseconds)
+                
+            # Change servo state
+                # 0x02
+                # <servo id (1 byte)>
+                # <new position (2 bytes)>
+                
+            # Sleep command
+                #0x03
+                
+            # Soft restart command (requires two packets to confirm)
+                # 0x04
+                
+            # Hard restart command (requires two packets to confirm)
+                # 0x05
+                
+            # Safe system (requires two packets to confirm)
+                # 0x06
 
 class FlightComputer:
     
-    def __init__(self, radio: Radio, rs485_bus: RS485Bus, qdc_actuator: QDCActuator, pst_valves: List[Valve], pst_pressure_sensors: List[PressureSensor], 
-                 status_logger: Logger, fc_sensor_logger: Logger, pst_sensor_logger: Logger, sys_state_logger: Logger, commands: List[Dict]) -> None:
+    def __init__(self, radio: Radio, rs485_bus: RS485Bus, qdc_actuator: QDCActuator, ps_valves: List[PassthroughValve], 
+                 ps_pressure_sensors: List[PassthroughPressureSensor], status_logger: Logger, state_logger: Logger, 
+                 sensor_logger: Logger, adc_sensors_cfg: List[Dict], valves_cfg: List[Dict], servos_cfg: List[Dict], 
+                 custom_commands_cfg: List[Dict], status_messages_cfg: List[Dict]) -> None:
+        
+        self._radio: Radio = radio
+        self._rs485_bus: RS485Bus = rs485_bus
+        self._qdc_actuator: QDCActuator = qdc_actuator
+        self._ps_valves: List[PassthroughValve] = ps_valves
+        self._ps_pressure_sensors: List[PassthroughPressureSensor] = ps_pressure_sensors
+        self._status_logger: Logger = status_logger
+        self._state_logger: Logger = state_logger
+        self._sensor_logger: Logger = sensor_logger
+        self._adc_sensors_cfg: List[Dict] = adc_sensors_cfg
+        self._valves_cfg: List[Dict] = valves_cfg
+        self._servos_cfg: List[Dict] = servos_cfg
+        self._custom_commands_cfg: List[Dict] = custom_commands_cfg
+        self._status_messages_cfg: List[Dict] = status_messages_cfg
         ...
         
     def __del__(self) -> None:
-        ...
+        """
+        Destructor for FlightComputer, shuts down system.
+        """
+        self._shutdown()
         
     def __str__(self) -> str:
         """
         Gets string representation of FlightComputer.
         """
+        ...
+        
+    
+    
+    def shutdown(self) -> None:
+        """
+        Shuts down flight computer, stopping all active threads.
+        """
+        ...
+        
+       
+    
         
             
     
