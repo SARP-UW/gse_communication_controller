@@ -87,13 +87,15 @@ from typing import Dict, List
 
     # Status packet
         # 0x04
+        # <system mode (1 byte)>
+        # <processor time (4 bytes)> (ms since startup)
         # <last command state (1 byte)>
         # <last command type (1 byte)> (optional)
         # <last command tag (1 byte)> (optional)
         # <last command arguments (variable length)> (optional)
         # <message tag (1 byte)> (repeated for each desired message) (optional)
         
-                    
+
 # Uplink Packets (from CC to FC):
 
     # Command packet
@@ -137,24 +139,25 @@ from typing import Dict, List
                 # <servo id (1 byte)>
                 # <new position (2 bytes)>
                 
-            # Sleep command
-                #0x03
+            # Sync sys time
+                # 0x03
+                # <time (8 bytes)> (unix epoch time)
                 
-            # Soft restart command (requires two packets to confirm)
-                # 0x04
+            # Sleep (2 commands to confirm)
+                #0x04
                 
-            # Hard restart command (requires two packets to confirm)
-                # 0x05
+            # Wake 
+                #0x05
                 
-            # Safe system (requires two packets to confirm)
-                # 0x06
+            # Restart (2 commands to confirm)
+                #0x06
 
 class FlightComputer:
     
     def __init__(self, radio: Radio, rs485_bus: RS485Bus, qdc_actuator: QDCActuator, ps_valves: List[PassthroughValve], 
                  ps_pressure_sensors: List[PassthroughPressureSensor], status_logger: Logger, state_logger: Logger, 
                  sensor_logger: Logger, adc_sensors_cfg: List[Dict], valves_cfg: List[Dict], servos_cfg: List[Dict], 
-                 custom_commands_cfg: List[Dict], status_messages_cfg: List[Dict]) -> None:
+                 custom_commands_cfg: List[Dict], status_messages_cfg: List[Dict], modes_cfg: List[Dict],) -> None:
         
         self._radio: Radio = radio
         self._rs485_bus: RS485Bus = rs485_bus
@@ -168,6 +171,7 @@ class FlightComputer:
         self._valves_cfg: List[Dict] = valves_cfg
         self._servos_cfg: List[Dict] = servos_cfg
         self._custom_commands_cfg: List[Dict] = custom_commands_cfg
+        self._modes_cfg: List[Dict] = modes_cfg
         self._status_messages_cfg: List[Dict] = status_messages_cfg
         ...
         
@@ -182,9 +186,136 @@ class FlightComputer:
         Gets string representation of FlightComputer.
         """
         ...
+    
+    @property
+    def sensor_data(self) -> Dict:
+        """
+        Latest sensor data from the flight computer. Cannot be invoked after shutdown.
+        <TODO: formatting info>
+        """
+        ...
+    
+    @property
+    def valve_states(self) -> Dict:
+        """
+        Current state of all valves on the flight computer. Cannot be invoked after shutdown.
+        <TODO: formatting info>
+        """
+        ...
+    
+    @property
+    def servo_states(self) -> Dict:
+        """
+        Current state of all servos on the flight computer. Cannot be invoked after shutdown.
+        <TODO: formatting info>
+        """
+        ...
+    
+    @property
+    def mode(self) -> str:
+        """
+        Current mode of the flight computer. Cannot be invoked after shutdown.
+        """
+        ...
+    
+    @property
+    def command_status(self) -> Dict:
+        """
+        Information about the state of the last command sent to the flight computer. Cannot be invoked after shutdown.
+        <TODO: formatting info>
+        """
+        ...
+
+    @property
+    def is_ready(self) -> bool:
+        """
+        Whether the flight computer is ready to accept a new command request. Cannot be invoked after shutdown.
+        <TODO: formatting info>
+        """
+        ...
+
+    @property
+    def sleep(self) -> bool:
+        """
+        True if the flight computer is currently in sleep mode. Cannot be invoked after shutdown.
+        """
+        ...
         
+    @property
+    def time_since_start(self) -> int:
+        """
+        Time since the flight computer started in milliseconds. Cannot be invoked after shutdown.
+        """
+        ...
     
+    def set_valve(self, valve_id: int, state: int) -> None:
+        """
+        Sets the state of a valve on the flight computer. Cannot be invoked after shutdown.
+        
+        Args:
+            valve_id (int): The ID of the valve to set.
+            state (int): The new state of the valve (0 = closed, 1 = open).
+        """
+        ...
+        
+    def pulse_valve(self, valve_id: int, duration_ms: int) -> None:
+        """
+        Pulses a valve on the flight computer for a specified duration. Cannot be invoked after shutdown.
+        
+        Args:
+            valve_id (int): The ID of the valve to pulse.
+            duration_ms (int): The duration to pulse the valve in milliseconds.
+        """
+        ...
+        
+    def override_valve(self, valve_id: int, override: bool) -> None:
+        """
+        Overrides a valve on the flight computer. Cannot be invoked after shutdown.
+        
+        Args:
+            valve_id (int): The ID of the valve to override.
+            override (bool): Whether to override the valve (True = override, False = normal operation).
+        """
+        ...
+        
+    def set_servo(self, servo_id: int, value: float) -> None:
+        """
+        Sets the position of a servo on the flight computer. Cannot be invoked after shutdown.
+        
+        Args:
+            servo_id (int): The ID of the servo to set.
+            position (int, float): The new position of the servo (speed, degrees, percent).
+        """
+        ...
     
+    def pulse_servo(self, servo_id: int, value: float, duration_ms: int) -> None:
+        """
+        Pulses a servo on the flight computer to a specified position for a specified duration. Cannot be invoked after shutdown.
+        
+        Args:
+            servo_id (int): The ID of the servo to pulse.
+            value (int, float): The position to pulse the servo to (speed, degrees, percent).
+            duration_ms (int): The duration to pulse the servo in milliseconds.
+        """
+        ...
+        
+    @mode.setter
+    def mode(self, new_mode: str) -> None:
+        """
+        Sets the current mode of the flight computer. Cannot be changed after shutdown.
+        """
+        ...
+    
+    def send_custom_command(self, command_id: int, args: List[int]) -> None:
+        """
+        Sends a custom command to the flight computer. Cannot be invoked after shutdown.
+        
+        Args:
+            command_id (int): The ID of the custom command to send.
+            args (List[int]): A list of arguments for the command.
+        """
+        ...
+        
     def shutdown(self) -> None:
         """
         Shuts down flight computer, stopping all active threads.

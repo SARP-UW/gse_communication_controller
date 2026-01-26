@@ -167,6 +167,19 @@
                 "tag": 2,
                 "message": "This is status message 2."
             }
+        ],
+        "modes": [
+            {
+                "tag": 0,
+                "name": "Normal mode",
+                "description": "The flight computer is in normal operation mode."
+            },
+            {
+                "tag": 1,
+                "name": "Sleep mode",
+                "description": "The flight computer is in low-power sleep mode."
+            }
         ]
+
     }
 }
