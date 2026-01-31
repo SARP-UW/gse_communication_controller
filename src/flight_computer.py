@@ -95,6 +95,8 @@ from typing import Dict, List
         # <last command arguments (variable length)> (optional)
         # <message tag (1 byte)> (repeated for each desired message) (optional)
         
+        # NOTE: After status packet is sent over radio, FC is expected 
+        
 
 # Uplink Packets (from CC to FC):
 
@@ -157,7 +159,7 @@ class FlightComputer:
     def __init__(self, radio: Radio, rs485_bus: RS485Bus, qdc_actuator: QDCActuator, ps_valves: List[PassthroughValve], 
                  ps_pressure_sensors: List[PassthroughPressureSensor], status_logger: Logger, state_logger: Logger, 
                  sensor_logger: Logger, adc_sensors_cfg: List[Dict], valves_cfg: List[Dict], servos_cfg: List[Dict], 
-                 custom_commands_cfg: List[Dict], status_messages_cfg: List[Dict], modes_cfg: List[Dict],) -> None:
+                 custom_commands_cfg: List[Dict], status_messages_cfg: List[Dict], modes_cfg: List[Dict]) -> None:
         
         self._radio: Radio = radio
         self._rs485_bus: RS485Bus = rs485_bus
@@ -321,10 +323,3 @@ class FlightComputer:
         Shuts down flight computer, stopping all active threads.
         """
         ...
-        
-       
-    
-        
-            
-    
-    
