@@ -1,7 +1,17 @@
 {
+    "website": {
+        "title": "GSE Communication Controller",
+        "host": 8080
+    },
     "qdc_actuator": {
-        "wire_1_locked_state": "high",
-        "wire_2_locked_state": "low"
+        "actuator_1_locked_state": {
+            "wire_1": "high",
+            "wire_2": "low"
+        },
+        "actuator_2_locked_state": {
+            "wire_1": "low",
+            "wire_2": "high"
+        }
     },
     "rs485_bus": {
         "baudrate": 115200,
