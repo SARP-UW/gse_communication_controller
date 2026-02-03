@@ -1,0 +1,1 @@
+- Update QDC config to support two QDC actuators

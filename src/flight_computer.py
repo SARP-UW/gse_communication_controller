@@ -38,7 +38,7 @@ from typing import Dict, List
 # Downlink Packets (from FC to CC):
 
     # Sensor data packet:
-        # 0x00
+        # 0x01
         # <IMU 1 accel x (2 bytes)>
         # <IMU 1 accel y (2 bytes)>
         # <IMU 1 accel z (2 bytes)>
@@ -66,7 +66,7 @@ from typing import Dict, List
         # <Current sensor 3 current (2 bytes)>
 
     # GPS data packet
-        # 0x01
+        # 0x02
         # <Latitude (4 bytes)>
         # <Longitude (4 bytes)>
         # <Altitude (4 bytes)>
@@ -76,37 +76,29 @@ from typing import Dict, List
         # <Time (4 bytes)>
             
     # ADC data packet
-        # 0x02
+        # 0x03
         # <packet index (1 byte)>
         # <data point (3 bytes)> (repeat for each sensor in adc config for this packet index)
             
     # State packet
-        # 0x03
+        # 0x04
         # <valve state (1 bit)> (repeat for each valve in status protocol, pad to byte boundary)
         # <servo state (2 bytes)> (repeat for each servo in status protocol)
 
-    # Status packet
-        # 0x04
+    # comm packet:
+        # 0x05
+        # <ping id (2 bytes)>
         # <system mode (1 byte)>
         # <processor time (4 bytes)> (ms since startup)
-        # <last command state (1 byte)>
-        # <last command type (1 byte)> (optional)
-        # <last command tag (1 byte)> (optional)
-        # <last command arguments (variable length)> (optional)
-        # <message tag (1 byte)> (repeated for each desired message) (optional)
+        # <last command id (2 bytes)>
+        # <last command status (1 byte)>
+        # <message count (1 byte)>
+        # <message 1 tag (1 byte)> (optional) (repeat for each desired message)
         
-
-# Uplink Packets (from CC to FC):
-
-    # Command packet
-        # 0x00
-        # <command type (1 byte)>
-        # <command tag (1 byte)>
-        # <command arguments (variable length)>
-                   
-    # More info:
-
-        # Command state values
+        # NOTE: After comm packet is sent over radio, FC is expected
+        # The comm packet is expected every 100 ms, with 10 ms given for a response.         
+        
+        # Command status values
             # 0x00 Command waiting
             # 0x01 Command in progress
             # 0x02 Command completed successfully
@@ -117,7 +109,20 @@ from typing import Dict, List
             # 0x07 Command failed due to timeout
             # 0x08 Command failed due to invalid system state
             # 0x09 Command aborted by flight computer
-            
+            # 0x0A Command awaiting confirmation
+
+# Uplink Packets (from CC to FC):
+
+    # comm packet:
+        # 0x01
+        # <ping id (2 bytes)>
+        # <system time (4 bytes)> (unix timestamp)
+        # <command valid (1 byte)> (0 = invalid, 1 = valid)
+        # <command id (2 bytes)> (optional, only if command valid = 1)
+        # <command type (1 byte)> (optional, only if command valid = 1)
+        # <command tag (1 byte)> (optional, only if command valid = 1)
+        # <command arguments (pre-determined variable length)> (optional, only if command valid = 1)
+
         # Command types
             # 0x00 Static command
             # 0x01 Custom command
@@ -139,40 +144,32 @@ from typing import Dict, List
                 # <servo id (1 byte)>
                 # <new position (2 bytes)>
                 
-            # Sync sys time
-                # 0x03
-                # <time (8 bytes)> (unix epoch time)
+            # Pulse servo
+                #0x03
+                # <servo id (1 byte)>
+                # <new position (2 bytes)>
+                # <pulse duration (2 bytes)> (in milliseconds)
                 
-            # Sleep (2 commands to confirm)
+            # Set sys mode
+                # 0x04
+                # <new mode (1 byte)>
+                
+            # Set comm link
+                # 0x05
+                # <new link (1 byte)> (0 = RS485, 1 = radio)
+                            
+            # Sleep
                 #0x04
                 
-            # Wake 
-                #0x05
-                
+            # Wake
+                # 0x05
+                 
             # Restart (2 commands to confirm)
                 #0x06
 
 class FlightComputer:
     
-    def __init__(self, radio: Radio, rs485_bus: RS485Bus, qdc_actuator: QDCActuator, ps_valves: List[PassthroughValve], 
-                 ps_pressure_sensors: List[PassthroughPressureSensor], status_logger: Logger, state_logger: Logger, 
-                 sensor_logger: Logger, adc_sensors_cfg: List[Dict], valves_cfg: List[Dict], servos_cfg: List[Dict], 
-                 custom_commands_cfg: List[Dict], status_messages_cfg: List[Dict], modes_cfg: List[Dict],) -> None:
-        
-        self._radio: Radio = radio
-        self._rs485_bus: RS485Bus = rs485_bus
-        self._qdc_actuator: QDCActuator = qdc_actuator
-        self._ps_valves: List[PassthroughValve] = ps_valves
-        self._ps_pressure_sensors: List[PassthroughPressureSensor] = ps_pressure_sensors
-        self._status_logger: Logger = status_logger
-        self._state_logger: Logger = state_logger
-        self._sensor_logger: Logger = sensor_logger
-        self._adc_sensors_cfg: List[Dict] = adc_sensors_cfg
-        self._valves_cfg: List[Dict] = valves_cfg
-        self._servos_cfg: List[Dict] = servos_cfg
-        self._custom_commands_cfg: List[Dict] = custom_commands_cfg
-        self._modes_cfg: List[Dict] = modes_cfg
-        self._status_messages_cfg: List[Dict] = status_messages_cfg
+    def __init__(self) -> None:
         ...
         
     def __del__(self) -> None:
@@ -188,63 +185,182 @@ class FlightComputer:
         ...
     
     @property
-    def sensor_data(self) -> Dict:
+    def adc_sensor_info(self) -> List[Dict]:
         """
-        Latest sensor data from the flight computer. Cannot be invoked after shutdown.
-        <TODO: formatting info>
-        """
-        ...
-    
-    @property
-    def valve_states(self) -> Dict:
-        """
-        Current state of all valves on the flight computer. Cannot be invoked after shutdown.
-        <TODO: formatting info>
-        """
-        ...
-    
-    @property
-    def servo_states(self) -> Dict:
-        """
-        Current state of all servos on the flight computer. Cannot be invoked after shutdown.
-        <TODO: formatting info>
+        List of dicts containing information about all ADC sensors on the flight computer.
+        
+        Format:
+            [
+                {
+                    id: <adc sensor id (int)>,
+                    name: <adc sensor name (str)>,
+                    type: <sensor type (str)>
+                }
+            ]
         """
         ...
     
     @property
-    def mode(self) -> str:
+    def valve_info(self) -> List[Dict]:
         """
-        Current mode of the flight computer. Cannot be invoked after shutdown.
+        List of dicts containing information about all valves on the flight computer.
+        
+        Format:
+            [
+                {
+                    id: <valve id (int)>,
+                    name: <valve name (str)>,
+                }
+            ]
+        """
+        ...
+        
+    @property
+    def servo_info(self) -> List[Dict]:
+        """
+        List of dicts containing information about all servos on the flight computer.
+        
+        Format:
+            [
+                {
+                    id: <servo id (int)>,
+                    name: <servo name (str)>,
+                    type: <servo type (str)>
+                }
+            ]
         """
         ...
     
     @property
-    def command_status(self) -> Dict:
+    def mode_info(self) -> List[Dict]:
         """
-        Information about the state of the last command sent to the flight computer. Cannot be invoked after shutdown.
-        <TODO: formatting info>
+        List of dicts containing information about all modes supported by the flight computer.
+        
+        Format:
+            [
+                {
+                    id: <mode id (int)>,
+                    name: <mode name (str)>,
+                    description: <mode description (str)>
+                }
+            ]
         """
         ...
-
+        
     @property
-    def is_ready(self) -> bool:
+    def custom_command_info(self) -> List[Dict]:
         """
-        Whether the flight computer is ready to accept a new command request. Cannot be invoked after shutdown.
-        <TODO: formatting info>
+        List of dicts containing information about all custom commands supported by the flight computer.
+        
+        Format:
+            [
+                {
+                    id: <custom command id (int)>,
+                    name: <custom command name (str)>,
+                    description: <custom command description (str)>,
+                    args: [
+                        {
+                            name: <argument name (str)>,
+                            type: <argument type (str)>,
+                            description: <argument description (str)>
+                        }
+                        ... (repeated for each argument)
+                    ]
+                }
+                ... (repeated for each custom command)
+            ]
+        """
+        ...  
+    
+    @property
+    def adc_sensor_data(self) -> Dict[int, float]:
+        """
+        Dict of latest ADC sensor data from the flight computer. 
+        Cannot be invoked after shutdown.
+        
+        Format:
+            {
+                <adc sensor id (int)>: <latest sensor reading (float)>,
+                ... (repeated for each adc sensor)
+            }
         """
         ...
-
+    
+    @property
+    def valve_states(self) -> Dict[int, int]:
+        """
+        Dict containing states of all valves on the flight computer. 
+        Cannot be invoked after shutdown.
+        
+        Format:
+            {
+                <valve id>: <state of valve ("open" or "closed")>,
+                ... (repeated for each valve)
+            }
+        """
+        ...
+    
+    @property
+    def servo_states(self) -> Dict[int, float]:
+        """
+        Dict containing states of all servos on the flight computer.
+        Cannot be invoked after shutdown.
+        
+        Format:
+            {
+                <servo id>: <state of servo (speed, degrees, percent) (float)>,
+                ... (repeated for each servo)
+            }
+        """
+        ...
+    
+    @property
+    def mode(self) -> int:
+        """
+        ID of the flight computer's current mode.
+        Cannot be invoked after shutdown.
+        """
+        ...
+    
     @property
     def sleep(self) -> bool:
         """
-        True if the flight computer is currently in sleep mode. Cannot be invoked after shutdown.
+        True if the flight computer is currently in sleeping.
+        Cannot be invoked after shutdown.
         """
         ...
         
     @property
     def time_since_start(self) -> int:
         """
-        Time since the flight computer started in milliseconds. Cannot be invoked after shutdown.
+        Time since the flight computer started in milliseconds. 
+        Cannot be invoked after shutdown.
+        """
+        ...
+    
+    @property
+    def is_ready(self) -> bool:
+        """
+        True if the flight computer is ready to accept a new command request, false otherwise.
+        Cannot be invoked after shutdown.
+        """
+        ...
+    
+    @property
+    def command_status(self) -> Dict:
+        """
+        # TODO - need to finish docstring
+        Dict containing status information about the last command sent to the flight computer.
+        Cannot be invoked after shutdown.
+        
+        Format:
+            {
+                cmd_tag: <command tag (str)>,
+                cmd_target: <id of target device (int)> (optional)
+                status_id: <command status id (int)>,
+                status_name: <command status name (str)>,
+                status_description: <command status description (str)>
+            }
         """
         ...
     
@@ -265,16 +381,6 @@ class FlightComputer:
         Args:
             valve_id (int): The ID of the valve to pulse.
             duration_ms (int): The duration to pulse the valve in milliseconds.
-        """
-        ...
-        
-    def override_valve(self, valve_id: int, override: bool) -> None:
-        """
-        Overrides a valve on the flight computer. Cannot be invoked after shutdown.
-        
-        Args:
-            valve_id (int): The ID of the valve to override.
-            override (bool): Whether to override the valve (True = override, False = normal operation).
         """
         ...
         
@@ -302,7 +408,16 @@ class FlightComputer:
     @mode.setter
     def mode(self, new_mode: str) -> None:
         """
-        Sets the current mode of the flight computer. Cannot be changed after shutdown.
+        Sets the current mode of the flight computer. 
+        Cannot be changed after shutdown.
+        """
+        ...
+    
+    @sleep.setter
+    def sleep(self, value: bool) -> None:
+        """
+        Sets whether the flight computer is sleeping. 
+        Cannot be changed after shutdown.
         """
         ...
     
@@ -321,10 +436,3 @@ class FlightComputer:
         Shuts down flight computer, stopping all active threads.
         """
         ...
-        
-       
-    
-        
-            
-    
-    
