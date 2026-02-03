@@ -19,6 +19,7 @@ class QDCActuator:
     """
     
     def __init__(self, wire_1_locked_state: str, wire_2_locked_state: str) -> None:
+        global qdc_act_init
         """
         Initializes a QDCActuator object with the given parameters. Starts in locked state.
         
@@ -148,6 +149,7 @@ class QDCActuator:
         """
         Shuts down the QDC actuator, sets it to locked state.
         """
+        global qdc_act_init
         if self._shutdown_flag:
             raise RuntimeError("Cannot shutdown QDC actuator more than once")
         qdc_act_init = False

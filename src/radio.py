@@ -164,6 +164,7 @@ class Radio:
             radio_config_path: The path to the radio configuration file (C file generated using Silicon Labs WDS).
             channel: The channel number to use for transmission/reception.
         """
+        global radio_init
         if not os.path.exists(radio_config_path):
             raise FileNotFoundError(f"Radio configuration file not found: {radio_config_path}")
         if channel < 0:
@@ -333,13 +334,6 @@ class Radio:
         """
         return self._channel
 
-    @property
-    def is_shutdown(self) -> bool:
-        """
-        True if Radio has been shutdown, false otherwise.
-        """
-        return self._shutdown_flag
-
     def transmit(self, packets: List[bytearray]) -> None:
         """
         Transmits the given list of packets using the radio transceiver. Note that while transmitting, 
@@ -380,6 +374,7 @@ class Radio:
         """
         Shuts down the radio transceiver and stops all internal threads (blocks until all packets sent).
         """
+        global radio_init
         if self._shutdown_flag:
             raise RuntimeError("Radio is already shutdown")
         

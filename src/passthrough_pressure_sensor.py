@@ -53,6 +53,7 @@ class PassthroughPressureSensor:
             min_pressure: The minimum pressure measurable by this passthrough pressure sensor.
             max_pressure: The maximum pressure measurable by this passthrough pressure sensor.
         """
+        global pst_ps_i2c, pst_ps_adc
         if input > PST_PS_COUNT:
             raise ValueError(f"Passthrough pressure sensor has invalid input number: {input} > {PST_PS_COUNT}")
         if input < 1:
@@ -237,6 +238,7 @@ class PassthroughPressureSensor:
         """
         Shuts down this passthrough pressure sensor. Cannot be called more than once.
         """
+        global pst_ps_i2c, pst_ps_adc
         if self._shutdown_flag:
             raise RuntimeError("Cannot shutdown passthrough pressure sensor more than once")
         self._shutdown_flag = True

@@ -84,6 +84,7 @@ class RS485Bus:
             stop_bits: The number of stop bits for the RS485 bus.
             parity: The parity for the RS485 bus. One of ['N', 'E', 'O', 'M', 'S'] (see pySerial documentation).
         """
+        global rs485_bus_init 
         if baudrate < RS485_MIN_BAUDRATE:
             raise ValueError(f"RS485 bus has invalid baudrate: {baudrate} < {RS485_MIN_BAUDRATE}")
         if baudrate > RS485_MAX_BAUDRATE:
@@ -262,6 +263,7 @@ class RS485Bus:
         """
         Shuts down the RS485 bus, stopping all communication and internal threads. Cannot be invoked after shutdown.
         """
+        global rs485_bus_init
         if self._shutdown_flag:
             raise RuntimeError("RS485 bus has already been shutdown")
         rs485_bus_init = False
