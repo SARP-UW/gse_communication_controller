@@ -170,7 +170,29 @@ from typing import Dict, List
 class FlightComputer:
     
     def __init__(self) -> None:
-        ...
+        # --- static info (populated from config) ---
+        self._adc_sensor_info: List[Dict] = []
+        self._valve_info: List[Dict] = []
+        self._servo_info: List[Dict] = []
+        self._mode_info: List[Dict] = []
+        self._custom_command_info: List[Dict] = []
+
+        # --- live state (updated from downlink packets) ---
+        self._adc_sensor_data: Dict[int, float] = {}
+        self._valve_states: Dict[int, str] = {}
+        self._servo_states: Dict[int, float] = {}
+        self._mode: int = 0
+        self._sleep: bool = False
+        self._time_since_start: int = 0
+        self._is_ready: bool = True
+        self._command_status: Dict = {
+            "cmd_tag": None,
+            "status_id": 0x00,
+            "status_name": "waiting",
+            "status_description": "Command waiting",
+        }
+
+        self._shutdown_flag: bool = False
         
     def __del__(self) -> None:
         """
@@ -198,7 +220,7 @@ class FlightComputer:
                 }
             ]
         """
-        ...
+        return list(self._adc_sensor_info)
     
     @property
     def valve_info(self) -> List[Dict]:
@@ -213,7 +235,7 @@ class FlightComputer:
                 }
             ]
         """
-        ...
+        return list(self._valve_info)
         
     @property
     def servo_info(self) -> List[Dict]:
@@ -229,7 +251,7 @@ class FlightComputer:
                 }
             ]
         """
-        ...
+        return list(self._servo_info)
     
     @property
     def mode_info(self) -> List[Dict]:
@@ -245,7 +267,7 @@ class FlightComputer:
                 }
             ]
         """
-        ...
+        return list(self._mode_info)
         
     @property
     def custom_command_info(self) -> List[Dict]:
@@ -270,7 +292,7 @@ class FlightComputer:
                 ... (repeated for each custom command)
             ]
         """
-        ...  
+        return list(self._custom_command_info)
     
     @property
     def adc_sensor_data(self) -> Dict[int, float]:
@@ -284,7 +306,9 @@ class FlightComputer:
                 ... (repeated for each adc sensor)
             }
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read ADC sensor data after shutdown")
+        return dict(self._adc_sensor_data)
     
     @property
     def valve_states(self) -> Dict[int, int]:
@@ -298,7 +322,9 @@ class FlightComputer:
                 ... (repeated for each valve)
             }
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read valve states after shutdown")
+        return dict(self._valve_states)
     
     @property
     def servo_states(self) -> Dict[int, float]:
@@ -312,7 +338,9 @@ class FlightComputer:
                 ... (repeated for each servo)
             }
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read servo states after shutdown")
+        return dict(self._servo_states)
     
     @property
     def mode(self) -> int:
@@ -320,7 +348,9 @@ class FlightComputer:
         ID of the flight computer's current mode.
         Cannot be invoked after shutdown.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read mode after shutdown")
+        return self._mode
     
     @property
     def sleep(self) -> bool:
@@ -328,7 +358,9 @@ class FlightComputer:
         True if the flight computer is currently in sleeping.
         Cannot be invoked after shutdown.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read sleep state after shutdown")
+        return self._sleep
         
     @property
     def time_since_start(self) -> int:
@@ -336,7 +368,9 @@ class FlightComputer:
         Time since the flight computer started in milliseconds. 
         Cannot be invoked after shutdown.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read time_since_start after shutdown")
+        return self._time_since_start
     
     @property
     def is_ready(self) -> bool:
@@ -344,7 +378,9 @@ class FlightComputer:
         True if the flight computer is ready to accept a new command request, false otherwise.
         Cannot be invoked after shutdown.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read is_ready after shutdown")
+        return self._is_ready
     
     @property
     def command_status(self) -> Dict:
@@ -362,7 +398,9 @@ class FlightComputer:
                 status_description: <command status description (str)>
             }
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot read command_status after shutdown")
+        return dict(self._command_status)
     
     def set_valve(self, valve_id: int, state: int) -> None:
         """
@@ -406,12 +444,14 @@ class FlightComputer:
         ...
         
     @mode.setter
-    def mode(self, new_mode: str) -> None:
+    def mode(self, new_mode: int) -> None:
         """
         Sets the current mode of the flight computer. 
         Cannot be changed after shutdown.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot set mode after shutdown")
+        self._mode = new_mode
     
     @sleep.setter
     def sleep(self, value: bool) -> None:
@@ -419,7 +459,9 @@ class FlightComputer:
         Sets whether the flight computer is sleeping. 
         Cannot be changed after shutdown.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot set sleep state after shutdown")
+        self._sleep = value
     
     def send_custom_command(self, command_id: int, args: List[int]) -> None:
         """
