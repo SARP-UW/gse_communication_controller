@@ -12,6 +12,7 @@ class Website:
         self._streaming = False
         self._stream_thread = None
         self._client_count = 0
+        self._telemetry_seq = 0
         self._lock = threading.Lock()
 
         # WebSocket events
@@ -43,6 +44,18 @@ class Website:
             "valves": self._jsonify_keys(fc.valve_states),
             "servos": self._jsonify_keys(fc.servo_states),
             "command_status": fc.command_status,
+        }
+
+    def build_telemetry_payload(self):
+        """Minimal payload contract emitted to clients."""
+        with self._lock:
+            self._telemetry_seq += 1
+            seq = self._telemetry_seq
+
+        return {
+            "ts_ms": int(time.time() * 1000),
+            "seq": seq,
+            "fc": self.read_telemetry_snapshot(),
         }
 
     def ws_connect(self):
@@ -103,10 +116,7 @@ class Website:
                     break
 
             try:
-                payload = {
-                    "ts_ms": int(time.time() * 1000),
-                    "fc": self.read_telemetry_snapshot()
-                }
+                payload = self.build_telemetry_payload()
                 # broadcast to everyone
                 self.socketio.emit("telemetry", payload)
 
