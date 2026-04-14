@@ -206,6 +206,91 @@ class FlightComputer:
         """
         ...
     
+    @classmethod
+    def from_config(cls, config: Dict) -> "FlightComputer":
+        """
+        Initializes a FlightComputer object from a configuration dictionary.
+
+        Args:
+            config: The 'flight_computer' section of the main config dict.
+        """
+        if 'adc_sensors' not in config:
+            raise KeyError("Flight computer config missing key: 'adc_sensors'")
+        if 'valves' not in config:
+            raise KeyError("Flight computer config missing key: 'valves'")
+        if 'servos' not in config:
+            raise KeyError("Flight computer config missing key: 'servos'")
+        if 'modes' not in config:
+            raise KeyError("Flight computer config missing key: 'modes'")
+        if 'custom_commands' not in config:
+            raise KeyError("Flight computer config missing key: 'custom_commands'")
+
+        if not isinstance(config['adc_sensors'], list):
+            raise ValueError(f"Flight computer config 'adc_sensors' must be a list, got: {type(config['adc_sensors']).__name__}")
+        if not isinstance(config['valves'], list):
+            raise ValueError(f"Flight computer config 'valves' must be a list, got: {type(config['valves']).__name__}")
+        if not isinstance(config['servos'], list):
+            raise ValueError(f"Flight computer config 'servos' must be a list, got: {type(config['servos']).__name__}")
+        if not isinstance(config['modes'], list):
+            raise ValueError(f"Flight computer config 'modes' must be a list, got: {type(config['modes']).__name__}")
+        if not isinstance(config['custom_commands'], list):
+            raise ValueError(f"Flight computer config 'custom_commands' must be a list, got: {type(config['custom_commands']).__name__}")
+
+        fc = cls()
+
+        # Populate static info from config
+        fc._adc_sensor_info = [
+            {
+                "id": sensor['protocol_index'],
+                "name": sensor['name'],
+                "type": sensor['type']
+            }
+            for sensor in config['adc_sensors']
+        ]
+
+        fc._valve_info = [
+            {
+                "id": valve['protocol_index'],
+                "name": valve['name']
+            }
+            for valve in config['valves']
+        ]
+
+        fc._servo_info = [
+            {
+                "id": servo['protocol_index'],
+                "name": servo['name'],
+                "type": servo['type']
+            }
+            for servo in config['servos']
+        ]
+
+        fc._mode_info = [
+            {
+                "id": mode['tag'],
+                "name": mode['name'],
+                "description": mode['description']
+            }
+            for mode in config['modes']
+        ]
+
+        fc._custom_command_info = [
+            {
+                "id": cmd['tag'],
+                "name": cmd['name'],
+                "description": cmd['description'],
+                "args": cmd.get('args', [])
+            }
+            for cmd in config['custom_commands']
+        ]
+
+        # Initialize live state dicts from static info
+        fc._adc_sensor_data = {sensor['id']: 0.0 for sensor in fc._adc_sensor_info}
+        fc._valve_states = {valve['id']: "unknown" for valve in fc._valve_info}
+        fc._servo_states = {servo['id']: 0.0 for servo in fc._servo_info}
+
+        return fc
+    
     @property
     def adc_sensor_info(self) -> List[Dict]:
         """
