@@ -6,7 +6,10 @@ from src.qdc_actuator import QDCActuator
 from src.passthrough_valve import PassthroughValve
 from src.passthrough_pressure_sensor import PassthroughPressureSensor
 from src.logger import Logger
-from typing import Dict, List
+from threading import Lock
+from typing import Dict, List, Optional
+import struct
+import time as _time
 
 # Data from flight comptuer:
     # Flight computer sensor data
@@ -221,6 +224,9 @@ class FlightComputer:
         self._command_sent: bool = False
         self._command_lock: threading.Lock = threading.Lock()
 
+        self._pending_command: Optional[dict] = None
+        self._next_command_id: int = 0
+        self._adc_packet_map: Dict[int, List[int]] = {}  # packet_index -> ordered list of sensor ids
         self._shutdown_flag: bool = False
         
         read_downlink_thread = threading.Thread(target = self._read_downlink_loop, daemon = True)
@@ -230,13 +236,107 @@ class FlightComputer:
         """
         Destructor for FlightComputer, shuts down system.
         """
-        self._shutdown()
+        self.shutdown()
         
     def __str__(self) -> str:
         """
         Gets string representation of FlightComputer.
         """
         ...
+    
+    @classmethod
+    def from_config(cls, config: Dict) -> "FlightComputer":
+        """
+        Initializes a FlightComputer object from a configuration dictionary.
+
+        Args:
+            config: The 'flight_computer' section of the main config dict.
+        """
+        if 'adc_sensors' not in config:
+            raise KeyError("Flight computer config missing key: 'adc_sensors'")
+        if 'valves' not in config:
+            raise KeyError("Flight computer config missing key: 'valves'")
+        if 'servos' not in config:
+            raise KeyError("Flight computer config missing key: 'servos'")
+        if 'modes' not in config:
+            raise KeyError("Flight computer config missing key: 'modes'")
+        if 'custom_commands' not in config:
+            raise KeyError("Flight computer config missing key: 'custom_commands'")
+
+        if not isinstance(config['adc_sensors'], list):
+            raise ValueError(f"Flight computer config 'adc_sensors' must be a list, got: {type(config['adc_sensors']).__name__}")
+        if not isinstance(config['valves'], list):
+            raise ValueError(f"Flight computer config 'valves' must be a list, got: {type(config['valves']).__name__}")
+        if not isinstance(config['servos'], list):
+            raise ValueError(f"Flight computer config 'servos' must be a list, got: {type(config['servos']).__name__}")
+        if not isinstance(config['modes'], list):
+            raise ValueError(f"Flight computer config 'modes' must be a list, got: {type(config['modes']).__name__}")
+        if not isinstance(config['custom_commands'], list):
+            raise ValueError(f"Flight computer config 'custom_commands' must be a list, got: {type(config['custom_commands']).__name__}")
+
+        fc = cls()
+
+        # Populate static info from config
+        fc._adc_sensor_info = [
+            {
+                "id": sensor['protocol_index'],
+                "name": sensor['name'],
+                "type": sensor['type']
+            }
+            for sensor in config['adc_sensors']
+        ]
+
+        # Build packet_index -> [sensor_id, ...] map (sorted by protocol_index within each packet)
+        packet_map: Dict[int, List[int]] = {}
+        for sensor in config['adc_sensors']:
+            pidx = sensor.get('packet_index', 1)
+            packet_map.setdefault(pidx, []).append(sensor['protocol_index'])
+        for pidx in packet_map:
+            packet_map[pidx].sort()
+        fc._adc_packet_map = packet_map
+
+        fc._valve_info = [
+            {
+                "id": valve['protocol_index'],
+                "name": valve['name']
+            }
+            for valve in config['valves']
+        ]
+
+        fc._servo_info = [
+            {
+                "id": servo['protocol_index'],
+                "name": servo['name'],
+                "type": servo['type']
+            }
+            for servo in config['servos']
+        ]
+
+        fc._mode_info = [
+            {
+                "id": mode['tag'],
+                "name": mode['name'],
+                "description": mode['description']
+            }
+            for mode in config['modes']
+        ]
+
+        fc._custom_command_info = [
+            {
+                "id": cmd['tag'],
+                "name": cmd['name'],
+                "description": cmd['description'],
+                "args": cmd.get('args', [])
+            }
+            for cmd in config['custom_commands']
+        ]
+
+        # Initialize live state dicts from static info
+        fc._adc_sensor_data = {sensor['id']: 0.0 for sensor in fc._adc_sensor_info}
+        fc._valve_states = {valve['id']: "unknown" for valve in fc._valve_info}
+        fc._servo_states = {servo['id']: 0.0 for servo in fc._servo_info}
+
+        return fc
     
     @property
     def adc_sensor_info(self) -> List[Dict]:
@@ -706,8 +806,8 @@ class FlightComputer:
 
     def set_valve(self, valve_id: int, state: int) -> None:
         """
-        Sets the state of a valve on the flight computer. Cannot be invoked after shutdown.
-        
+        Enqueues a "change valve state" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             valve_id (int): The ID of the valve to set.
             state (int): The new state of the valve (0 = closed, 1 = open).
@@ -717,8 +817,8 @@ class FlightComputer:
         
     def pulse_valve(self, valve_id: int, duration_ms: int) -> None:
         """
-        Pulses a valve on the flight computer for a specified duration. Cannot be invoked after shutdown.
-        
+        Enqueues a "pulse valve" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             valve_id (int): The ID of the valve to pulse.
             duration_ms (int): The duration to pulse the valve in milliseconds.
@@ -728,22 +828,22 @@ class FlightComputer:
         
     def set_servo(self, servo_id: int, value: float) -> None:
         """
-        Sets the position of a servo on the flight computer. Cannot be invoked after shutdown.
-        
+        Enqueues a "change servo state" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             servo_id (int): The ID of the servo to set.
-            position (int, float): The new position of the servo (speed, degrees, percent).
+            value (float): The new position of the servo (speed, degrees, or percent).
         """
         args = [servo_id, value]
         self._set_next_command(self, 0x00, 0x02, args)
     
     def pulse_servo(self, servo_id: int, value: float, duration_ms: int) -> None:
         """
-        Pulses a servo on the flight computer to a specified position for a specified duration. Cannot be invoked after shutdown.
-        
+        Enqueues a "pulse servo" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             servo_id (int): The ID of the servo to pulse.
-            value (int, float): The position to pulse the servo to (speed, degrees, percent).
+            value (float): The position to pulse the servo to.
             duration_ms (int): The duration to pulse the servo in milliseconds.
         """
         args = [servo_id, value, duration_ms]
@@ -794,11 +894,11 @@ class FlightComputer:
     
     def send_custom_command(self, command_id: int, args: List[int]) -> None:
         """
-        Sends a custom command to the flight computer. Cannot be invoked after shutdown.
-        
+        Enqueues a custom command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
-            command_id (int): The ID of the custom command to send.
-            args (List[int]): A list of arguments for the command.
+            command_id (int): The tag of the custom command to send.
+            args (List[int]): A list of byte-valued arguments for the command.
         """
         self._set_next_command(self, 0x01, 0x00, args) # add args and change 0x00 to from config
         

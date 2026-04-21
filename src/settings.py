@@ -18,6 +18,9 @@ MOCK_MODE: bool = False
 # Timeout for waiting for CTS (clear to send) from radio (in seconds)
 RADIO_CTS_TIMEOUT: float = 1.0
 
+# Timeout for waiting for TX queue to drain on radio shutdown (in seconds)
+RADIO_SHUTDOWN_TIMEOUT: float = 5.0
+
 # If true, application prints website status messages to console.
 PRINT_WEBSITE_STATUS: bool = False
 

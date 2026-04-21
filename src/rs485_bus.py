@@ -137,11 +137,11 @@ class RS485Bus:
             self._re_io.direction = Direction.OUTPUT
             self._re_io.value = False
         
-        self._tx_thread: Thread = Thread(target = self._tx_thread)
-        if not settings.MOCK_MODE :
-            self._rx_thread: Thread = Thread(target = self._rx_thread)
+        self._tx_thread: Thread = Thread(target=self._tx_thread, daemon=True)
         self._tx_thread.start()
-        self._rx_thread.start()
+        if not settings.MOCK_MODE:
+            self._rx_thread: Thread = Thread(target=self._rx_thread, daemon=True)
+            self._rx_thread.start()
 
     @classmethod
     def from_config(cls, config: dict) -> "RS485Bus":
