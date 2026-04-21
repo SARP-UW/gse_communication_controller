@@ -1,6 +1,7 @@
 import json
 import argparse
 import os
+import signal
 import time
 import socket
 from src.controller import Controller
@@ -57,6 +58,11 @@ def main():
                 return json.load(f)
         except json.JSONDecodeError as e:
             raise json.JSONDecodeError(f"Invalid JSON in {config_path}: {e.msg}", e.doc, e.pos)
+
+    # Treat SIGTERM (systemctl stop, Pi shutdown) the same as Ctrl-C for graceful hardware shutdown
+    def _handle_sigterm(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     print("SYSTEM STATUS: Starting system...")
 

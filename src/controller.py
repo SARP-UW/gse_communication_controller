@@ -34,16 +34,18 @@ class Controller:
             radio: Initialised Radio instance.
             rs485: Initialised RS485Bus instance.
         """
+        # Set before singleton check so __del__ -> shutdown() is safe if __init__ raises
+        self._shutdown_flag: bool = False
+        self._radio: Radio = radio
+        self._rs485: RS485Bus = rs485
+
         global _controller_init
         if _controller_init:
             raise RuntimeError("Controller has already been initialized")
         _controller_init = True
 
-        self._radio: Radio = radio
-        self._rs485: RS485Bus = rs485
         self._active_link: str = "rs485"
         self._rs485_rx_buffer: bytearray = bytearray()
-        self._shutdown_flag: bool = False
 
         # Hardware (valves, pressure sensors, QDC) — not wired yet; stubs return empty
         self._passthrough_valves: list = []
@@ -195,7 +197,8 @@ class Controller:
         self._shutdown_flag = True
         _controller_init = False
 
-        if not self._radio.is_shutdown:
+        # hasattr guards: _radio/_rs485 may not exist if __init__ raised after assigning them
+        if hasattr(self, '_radio') and not self._radio.is_shutdown:
             self._radio.shutdown()
-        if not self._rs485.is_shutdown:
+        if hasattr(self, '_rs485') and not self._rs485.is_shutdown:
             self._rs485.shutdown()

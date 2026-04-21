@@ -271,7 +271,8 @@ class Radio:
             self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
             self._wait_cts()
 
-        self._tx_thread: Thread = Thread(target=self._tx_thread)
+        # daemon=True so the thread doesn't keep the process alive if shutdown is never called
+        self._tx_thread: Thread = Thread(target=self._tx_thread, daemon=True)
         self._tx_thread.start()
               
     @classmethod

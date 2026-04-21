@@ -4,6 +4,7 @@ from src.qdc_actuator import QDCActuator
 from src.passthrough_valve import PassthroughValve
 from src.passthrough_pressure_sensor import PassthroughPressureSensor
 from src.logger import Logger
+from threading import Lock
 from typing import Dict, List, Optional
 import struct
 import time as _time
@@ -198,6 +199,8 @@ class FlightComputer:
         self._next_command_id: int = 0
         self._adc_packet_map: Dict[int, List[int]] = {}  # packet_index -> ordered list of sensor ids
         self._shutdown_flag: bool = False
+        # Protects _pending_command accessed from website thread (writers) and comm loop (reader)
+        self._command_lock: Lock = Lock()
 
     def __del__(self) -> None:
         """
@@ -511,13 +514,14 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot set valve after shutdown")
-        self._next_command_id += 1
-        self._pending_command = {
-            "id": self._next_command_id,
-            "type": 0x00,   # static command
-            "tag": 0x00,    # change valve state
-            "args": bytearray([valve_id & 0xFF, state & 0xFF]),
-        }
+        with self._command_lock:
+            self._next_command_id = (self._next_command_id + 1) & 0xFFFF  # wrap to fit H format
+            self._pending_command = {
+                "id": self._next_command_id,
+                "type": 0x00,   # static command
+                "tag": 0x00,    # change valve state
+                "args": bytearray([valve_id & 0xFF, state & 0xFF]),
+            }
 
     def pulse_valve(self, valve_id: int, duration_ms: int) -> None:
         """
@@ -529,13 +533,14 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot pulse valve after shutdown")
-        self._next_command_id += 1
-        self._pending_command = {
-            "id": self._next_command_id,
-            "type": 0x00,
-            "tag": 0x01,    # pulse valve
-            "args": struct.pack(">BH", valve_id & 0xFF, duration_ms),
-        }
+        with self._command_lock:
+            self._next_command_id = (self._next_command_id + 1) & 0xFFFF
+            self._pending_command = {
+                "id": self._next_command_id,
+                "type": 0x00,
+                "tag": 0x01,    # pulse valve
+                "args": struct.pack(">BH", valve_id & 0xFF, duration_ms),
+            }
 
     def set_servo(self, servo_id: int, value: float) -> None:
         """
@@ -547,13 +552,14 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot set servo after shutdown")
-        self._next_command_id += 1
-        self._pending_command = {
-            "id": self._next_command_id,
-            "type": 0x00,
-            "tag": 0x02,    # change servo state
-            "args": struct.pack(">Bh", servo_id & 0xFF, int(value)),
-        }
+        with self._command_lock:
+            self._next_command_id = (self._next_command_id + 1) & 0xFFFF
+            self._pending_command = {
+                "id": self._next_command_id,
+                "type": 0x00,
+                "tag": 0x02,    # change servo state
+                "args": struct.pack(">Bh", servo_id & 0xFF, int(value)),
+            }
 
     def pulse_servo(self, servo_id: int, value: float, duration_ms: int) -> None:
         """
@@ -566,13 +572,14 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot pulse servo after shutdown")
-        self._next_command_id += 1
-        self._pending_command = {
-            "id": self._next_command_id,
-            "type": 0x00,
-            "tag": 0x03,    # pulse servo
-            "args": struct.pack(">BhH", servo_id & 0xFF, int(value), duration_ms),
-        }
+        with self._command_lock:
+            self._next_command_id = (self._next_command_id + 1) & 0xFFFF
+            self._pending_command = {
+                "id": self._next_command_id,
+                "type": 0x00,
+                "tag": 0x03,    # pulse servo
+                "args": struct.pack(">BhH", servo_id & 0xFF, int(value), duration_ms),
+            }
         
     @mode.setter
     def mode(self, new_mode: int) -> None:
@@ -604,13 +611,14 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot send custom command after shutdown")
-        self._next_command_id += 1
-        self._pending_command = {
-            "id": self._next_command_id,
-            "type": 0x01,   # custom command
-            "tag": command_id & 0xFF,
-            "args": bytearray(args),
-        }
+        with self._command_lock:
+            self._next_command_id = (self._next_command_id + 1) & 0xFFFF
+            self._pending_command = {
+                "id": self._next_command_id,
+                "type": 0x01,   # custom command
+                "tag": command_id & 0xFF,
+                "args": bytearray(args),
+            }
         
     def process_packet(self, packet: bytearray) -> Optional[int]:
         """
@@ -659,6 +667,8 @@ class FlightComputer:
         self._command_status["status_id"] = last_cmd_status
         self._command_status["status_name"] = status_name
         self._command_status["status_description"] = status_desc
+        # Not ready when FC is actively processing or waiting for confirmation
+        self._is_ready = last_cmd_status not in (0x01, 0x0A)
         return ping_id
 
     def _process_adc_packet(self, packet: bytearray) -> None:
@@ -703,8 +713,10 @@ class FlightComputer:
             raise RuntimeError("Cannot build comm response after shutdown")
 
         timestamp = int(_time.time())
-        command = self._pending_command
-        self._pending_command = None
+        # Atomic read-and-clear under lock to prevent race with website thread writers
+        with self._command_lock:
+            command = self._pending_command
+            self._pending_command = None
 
         if command is None:
             # type(B) + ping_id(H) + timestamp(I) + command_valid(B)
