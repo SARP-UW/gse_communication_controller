@@ -4,6 +4,9 @@ from typing import List, Dict
 
 from src.radio import Radio
 from src.rs485_bus import RS485Bus
+from src.passthrough_valve import PassthroughValve
+from src.passthrough_pressure_sensor import PassthroughPressureSensor
+from src.qdc_actuator import QDCActuator
 
 # Repo root — used to resolve __rel__ paths from config
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,13 +29,19 @@ def _resolve_config_path(path: str) -> str:
 
 class Controller:
 
-    def __init__(self, radio: Radio, rs485: RS485Bus) -> None:
+    def __init__(self, radio: Radio, rs485: RS485Bus,
+                 valves: List[PassthroughValve],
+                 sensors: List[PassthroughPressureSensor],
+                 qdc_actuators: List[QDCActuator]) -> None:
         """
-        Initialises a Controller with the given communication interfaces.
+        Initialises a Controller with communication interfaces and hardware drivers.
 
         Args:
             radio: Initialised Radio instance.
             rs485: Initialised RS485Bus instance.
+            valves: List of initialised PassthroughValve instances.
+            sensors: List of initialised PassthroughPressureSensor instances.
+            qdc_actuators: List of initialised QDCActuator instances.
         """
         # Set before singleton check so __del__ -> shutdown() is safe if __init__ raises
         self._shutdown_flag: bool = False
@@ -47,10 +56,9 @@ class Controller:
         self._active_link: str = "rs485"
         self._rs485_rx_buffer: bytearray = bytearray()
 
-        # Hardware (valves, pressure sensors, QDC) — not wired yet; stubs return empty
-        self._passthrough_valves: list = []
-        self._passthrough_pressure_sensors: list = []
-        self._qdc_actuator = None
+        self._passthrough_valves: List[PassthroughValve] = valves
+        self._passthrough_pressure_sensors: List[PassthroughPressureSensor] = sensors
+        self._qdc_actuators: List[QDCActuator] = qdc_actuators
 
     @classmethod
     def from_config(cls, config: Dict) -> "Controller":
@@ -66,7 +74,23 @@ class Controller:
         }
         radio = Radio.from_config(radio_cfg)
         rs485 = RS485Bus.from_config(config["rs485_bus"])
-        return cls(radio, rs485)
+
+        fc_cfg = config.get("flight_computer", {})
+
+        valves = [
+            PassthroughValve.from_config(v)
+            for v in fc_cfg.get("passthrough_valves", [])
+        ]
+        sensors = [
+            PassthroughPressureSensor.from_config(s)
+            for s in fc_cfg.get("passthrough_pressure_sensors", [])
+        ]
+        qdc_actuators = [
+            QDCActuator.from_config(q)
+            for q in config.get("qdc_actuator", [])
+        ]
+
+        return cls(radio, rs485, valves, sensors, qdc_actuators)
 
     def __del__(self) -> None:
         self.shutdown()
@@ -141,46 +165,92 @@ class Controller:
                 self._rs485.write(bytearray(framed))
 
     # ------------------------------------------------------------------
-    # Hardware state (stubs — not needed for comm loop)
+    # Hardware — passthrough valves
     # ------------------------------------------------------------------
 
     @property
     def passthrough_valve_info(self) -> List[Dict]:
-        return []
-
-    @property
-    def qdc_actuator_info(self) -> List[Dict]:
-        return []
-
-    @property
-    def passthrough_pressure_sensor_info(self) -> List[Dict]:
-        return []
+        """Static info for all passthrough valves: id, name, default_state."""
+        return [
+            {"id": v.input, "name": v.name, "default_state": v.default_state}
+            for v in self._passthrough_valves
+        ]
 
     @property
     def passthrough_valve_states(self) -> Dict[int, Dict]:
+        """Live state of all passthrough valves keyed by input id. Cannot be called after shutdown."""
         if self._shutdown_flag:
             raise RuntimeError("Cannot read valve states after shutdown")
-        return {}
+        return {
+            v.input: {"state": v.state, "override": v.override}
+            for v in self._passthrough_valves
+        }
+
+    def set_passthrough_valve_state(self, valve_id: int, override: bool) -> None:
+        """Sets override state of a passthrough valve by id. Cannot be called after shutdown."""
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot set valve state after shutdown")
+        for v in self._passthrough_valves:
+            if v.input == valve_id:
+                v.override = override
+                return
+        raise ValueError(f"No passthrough valve with id: {valve_id}")
+
+    # ------------------------------------------------------------------
+    # Hardware — passthrough pressure sensors
+    # ------------------------------------------------------------------
 
     @property
-    def qdc_actuator_states(self) -> Dict[int, str]:
-        if self._shutdown_flag:
-            raise RuntimeError("Cannot read QDC states after shutdown")
-        return {}
+    def passthrough_pressure_sensor_info(self) -> List[Dict]:
+        """Static info for all passthrough pressure sensors: id, name, pressure_range."""
+        return [
+            {
+                "id": s.input,
+                "name": s.name,
+                "pressure_range": {"min": s.min_pressure, "max": s.max_pressure},
+            }
+            for s in self._passthrough_pressure_sensors
+        ]
 
     @property
     def passthrough_pressure_sensor_data(self) -> Dict[int, float]:
+        """Latest pressure reading (PSI) for each sensor keyed by input id. Cannot be called after shutdown."""
         if self._shutdown_flag:
             raise RuntimeError("Cannot read pressure sensor data after shutdown")
-        return {}
+        return {s.input: s.pressure for s in self._passthrough_pressure_sensors}
 
-    def set_passthrough_valve_state(self, valve_id: int, override: bool) -> None:
+    # ------------------------------------------------------------------
+    # Hardware — QDC actuators
+    # ------------------------------------------------------------------
+
+    @property
+    def qdc_actuator_info(self) -> List[Dict]:
+        """Static info for all QDC actuators: id, wire_1_locked_state, wire_2_locked_state."""
+        return [
+            {
+                "id": q.actuator_id,
+                "wire_1_locked_state": q.wire_1_locked_state,
+                "wire_2_locked_state": q.wire_2_locked_state,
+            }
+            for q in self._qdc_actuators
+        ]
+
+    @property
+    def qdc_actuator_states(self) -> Dict[int, str]:
+        """Live state of all QDC actuators keyed by actuator_id. Cannot be called after shutdown."""
         if self._shutdown_flag:
-            raise RuntimeError("Cannot set valve state after shutdown")
+            raise RuntimeError("Cannot read QDC states after shutdown")
+        return {q.actuator_id: q.state for q in self._qdc_actuators}
 
     def set_qdc_actuator_state(self, actuator_id: int, state: str) -> None:
+        """Sets state of a QDC actuator by id ("locked" or "released"). Cannot be called after shutdown."""
         if self._shutdown_flag:
             raise RuntimeError("Cannot set QDC state after shutdown")
+        for q in self._qdc_actuators:
+            if q.actuator_id == actuator_id:
+                q.state = state
+                return
+        raise ValueError(f"No QDC actuator with id: {actuator_id}")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -197,7 +267,16 @@ class Controller:
         self._shutdown_flag = True
         _controller_init = False
 
-        # hasattr guards: _radio/_rs485 may not exist if __init__ raised after assigning them
+        # hasattr guards: fields may not exist if __init__ raised before assigning them
+        for v in getattr(self, '_passthrough_valves', []):
+            if not v.is_shutdown:
+                v.shutdown()
+        for s in getattr(self, '_passthrough_pressure_sensors', []):
+            if not s.is_shutdown:
+                s.shutdown()
+        for q in getattr(self, '_qdc_actuators', []):
+            if not q.is_shutdown:
+                q.shutdown()
         if hasattr(self, '_radio') and not self._radio.is_shutdown:
             self._radio.shutdown()
         if hasattr(self, '_rs485') and not self._rs485.is_shutdown:
