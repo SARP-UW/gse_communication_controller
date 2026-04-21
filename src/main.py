@@ -41,7 +41,7 @@ def main():
     parser.add_argument(
         '-c', '--config',
         type=str,
-        default=f'{os.path.dirname(__file__)}/config/default/config.json',
+        default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config/default/config.json'),
         help='Path to configuration file (default: config/default/config.json)'
     )
     args = parser.parse_args()
@@ -74,22 +74,35 @@ def main():
         flight_computer = FlightComputer.from_config(config['flight_computer'])
 
         print("SYSTEM STATUS: Initializing website...")
+        # Note: config['website']['host'] holds the port number (8080), not a hostname.
+        _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         website = Website(
             port=config['website']['host'],
-            website_log_path=os.path.join(os.path.dirname(__file__), 'logs', 'website_log.txt'),
+            website_log_path=os.path.join(_repo_root, 'logs', 'website_log.txt'),
             flight_computer=flight_computer
         )
 
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
 
+        # Comm loop: poll both links every 5 ms, respond to FC comm heartbeats
+        _COMM_POLL_INTERVAL = 0.005  # 5 ms — well within the 10 ms response window
         while True:
-            time.sleep(1)
+            packets = controller.receive_packets()
+            for packet in packets:
+                ping_id = flight_computer.process_packet(packet)
+                if ping_id is not None:
+                    # FC sent a comm packet — respond immediately
+                    response = flight_computer.build_comm_response(ping_id)
+                    controller.transmit_packets([response])
+            time.sleep(_COMM_POLL_INTERVAL)
 
     except KeyboardInterrupt:
         print("\nSYSTEM STATUS: Stopping system...")
         if website:
             website.shutdown()
+        if flight_computer:
+            flight_computer.shutdown()
         if controller:
             controller.shutdown()
 

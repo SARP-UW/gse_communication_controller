@@ -4,7 +4,9 @@ from src.qdc_actuator import QDCActuator
 from src.passthrough_valve import PassthroughValve
 from src.passthrough_pressure_sensor import PassthroughPressureSensor
 from src.logger import Logger
-from typing import Dict, List
+from typing import Dict, List, Optional
+import struct
+import time as _time
 
 # Data from flight comptuer:
     # Flight computer sensor data
@@ -192,13 +194,16 @@ class FlightComputer:
             "status_description": "Command waiting",
         }
 
+        self._pending_command: Optional[dict] = None
+        self._next_command_id: int = 0
+        self._adc_packet_map: Dict[int, List[int]] = {}  # packet_index -> ordered list of sensor ids
         self._shutdown_flag: bool = False
-        
+
     def __del__(self) -> None:
         """
         Destructor for FlightComputer, shuts down system.
         """
-        self._shutdown()
+        self.shutdown()
         
     def __str__(self) -> str:
         """
@@ -247,6 +252,15 @@ class FlightComputer:
             }
             for sensor in config['adc_sensors']
         ]
+
+        # Build packet_index -> [sensor_id, ...] map (sorted by protocol_index within each packet)
+        packet_map: Dict[int, List[int]] = {}
+        for sensor in config['adc_sensors']:
+            pidx = sensor.get('packet_index', 1)
+            packet_map.setdefault(pidx, []).append(sensor['protocol_index'])
+        for pidx in packet_map:
+            packet_map[pidx].sort()
+        fc._adc_packet_map = packet_map
 
         fc._valve_info = [
             {
@@ -489,44 +503,76 @@ class FlightComputer:
     
     def set_valve(self, valve_id: int, state: int) -> None:
         """
-        Sets the state of a valve on the flight computer. Cannot be invoked after shutdown.
-        
+        Enqueues a "change valve state" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             valve_id (int): The ID of the valve to set.
             state (int): The new state of the valve (0 = closed, 1 = open).
         """
-        ...
-        
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot set valve after shutdown")
+        self._next_command_id += 1
+        self._pending_command = {
+            "id": self._next_command_id,
+            "type": 0x00,   # static command
+            "tag": 0x00,    # change valve state
+            "args": bytearray([valve_id & 0xFF, state & 0xFF]),
+        }
+
     def pulse_valve(self, valve_id: int, duration_ms: int) -> None:
         """
-        Pulses a valve on the flight computer for a specified duration. Cannot be invoked after shutdown.
-        
+        Enqueues a "pulse valve" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             valve_id (int): The ID of the valve to pulse.
             duration_ms (int): The duration to pulse the valve in milliseconds.
         """
-        ...
-        
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot pulse valve after shutdown")
+        self._next_command_id += 1
+        self._pending_command = {
+            "id": self._next_command_id,
+            "type": 0x00,
+            "tag": 0x01,    # pulse valve
+            "args": struct.pack(">BH", valve_id & 0xFF, duration_ms),
+        }
+
     def set_servo(self, servo_id: int, value: float) -> None:
         """
-        Sets the position of a servo on the flight computer. Cannot be invoked after shutdown.
-        
+        Enqueues a "change servo state" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             servo_id (int): The ID of the servo to set.
-            position (int, float): The new position of the servo (speed, degrees, percent).
+            value (float): The new position of the servo (speed, degrees, or percent).
         """
-        ...
-    
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot set servo after shutdown")
+        self._next_command_id += 1
+        self._pending_command = {
+            "id": self._next_command_id,
+            "type": 0x00,
+            "tag": 0x02,    # change servo state
+            "args": struct.pack(">Bh", servo_id & 0xFF, int(value)),
+        }
+
     def pulse_servo(self, servo_id: int, value: float, duration_ms: int) -> None:
         """
-        Pulses a servo on the flight computer to a specified position for a specified duration. Cannot be invoked after shutdown.
-        
+        Enqueues a "pulse servo" command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
             servo_id (int): The ID of the servo to pulse.
-            value (int, float): The position to pulse the servo to (speed, degrees, percent).
+            value (float): The position to pulse the servo to.
             duration_ms (int): The duration to pulse the servo in milliseconds.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot pulse servo after shutdown")
+        self._next_command_id += 1
+        self._pending_command = {
+            "id": self._next_command_id,
+            "type": 0x00,
+            "tag": 0x03,    # pulse servo
+            "args": struct.pack(">BhH", servo_id & 0xFF, int(value), duration_ms),
+        }
         
     @mode.setter
     def mode(self, new_mode: int) -> None:
@@ -550,16 +596,132 @@ class FlightComputer:
     
     def send_custom_command(self, command_id: int, args: List[int]) -> None:
         """
-        Sends a custom command to the flight computer. Cannot be invoked after shutdown.
-        
+        Enqueues a custom command for the flight computer. Cannot be invoked after shutdown.
+
         Args:
-            command_id (int): The ID of the custom command to send.
-            args (List[int]): A list of arguments for the command.
+            command_id (int): The tag of the custom command to send.
+            args (List[int]): A list of byte-valued arguments for the command.
         """
-        ...
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot send custom command after shutdown")
+        self._next_command_id += 1
+        self._pending_command = {
+            "id": self._next_command_id,
+            "type": 0x01,   # custom command
+            "tag": command_id & 0xFF,
+            "args": bytearray(args),
+        }
         
+    def process_packet(self, packet: bytearray) -> Optional[int]:
+        """
+        Processes a downlink packet from the flight computer and updates internal state.
+
+        Returns the ping_id if this was a comm packet (type 0x05), otherwise None.
+        Cannot be invoked after shutdown.
+        """
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot process packets after shutdown")
+        if not packet:
+            return None
+
+        ptype = packet[0]
+        if ptype == 0x03:
+            self._process_adc_packet(packet)
+        elif ptype == 0x04:
+            self._process_state_packet(packet)
+        elif ptype == 0x05:
+            return self._process_comm_packet(packet)
+        # 0x01 (sensor data) and 0x02 (GPS) are skipped — no state model yet
+        return None
+
+    def _process_comm_packet(self, packet: bytearray) -> Optional[int]:
+        # type(B) + ping_id(H) + mode(B) + proc_time(I) + last_cmd_id(H) + last_cmd_status(B) + msg_count(B)
+        if len(packet) < 12:
+            return None
+        _, ping_id, mode, proc_time, _, last_cmd_status, _ = struct.unpack_from(">BHBIHBB", packet)
+        self._time_since_start = proc_time
+        self._mode = mode
+        # Update command status from last_cmd_status
+        status_map = {
+            0x00: ("waiting", "Command waiting"),
+            0x01: ("in_progress", "Command in progress"),
+            0x02: ("completed", "Command completed successfully"),
+            0x03: ("failed_tag", "Command failed: invalid tag"),
+            0x04: ("failed_args", "Command failed: invalid arguments"),
+            0x05: ("failed_range", "Command failed: out of range arguments"),
+            0x06: ("failed_hw", "Command failed: hardware error"),
+            0x07: ("failed_timeout", "Command failed: timeout"),
+            0x08: ("failed_state", "Command failed: invalid system state"),
+            0x09: ("aborted", "Command aborted by flight computer"),
+            0x0A: ("awaiting_confirm", "Command awaiting confirmation"),
+        }
+        status_name, status_desc = status_map.get(last_cmd_status, ("unknown", "Unknown status"))
+        self._command_status["status_id"] = last_cmd_status
+        self._command_status["status_name"] = status_name
+        self._command_status["status_description"] = status_desc
+        return ping_id
+
+    def _process_adc_packet(self, packet: bytearray) -> None:
+        if len(packet) < 2:
+            return
+        packet_index = packet[1]
+        sensor_ids = self._adc_packet_map.get(packet_index, [])
+        offset = 2
+        for sensor_id in sensor_ids:
+            if offset + 3 > len(packet):
+                break
+            raw = (packet[offset] << 16) | (packet[offset + 1] << 8) | packet[offset + 2]
+            self._adc_sensor_data[sensor_id] = float(raw)
+            offset += 3
+
+    def _process_state_packet(self, packet: bytearray) -> None:
+        num_valves = len(self._valve_info)
+        num_valve_bytes = (num_valves + 7) // 8
+        if len(packet) < 1 + num_valve_bytes:
+            return
+        valve_bytes = packet[1:1 + num_valve_bytes]
+        for i, valve in enumerate(sorted(self._valve_info, key=lambda v: v["id"])):
+            byte_idx = i // 8
+            bit_idx = i % 8
+            state_bit = (valve_bytes[byte_idx] >> bit_idx) & 1
+            self._valve_states[valve["id"]] = "open" if state_bit else "closed"
+        offset = 1 + num_valve_bytes
+        for servo in sorted(self._servo_info, key=lambda s: s["id"]):
+            if offset + 2 > len(packet):
+                break
+            value = struct.unpack_from(">h", packet, offset)[0]
+            self._servo_states[servo["id"]] = float(value)
+            offset += 2
+
+    def build_comm_response(self, ping_id: int) -> bytearray:
+        """
+        Builds an uplink comm packet (type 0x01) echoing ping_id.
+        Includes one pending command if queued; clears the queue after.
+        Cannot be invoked after shutdown.
+        """
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot build comm response after shutdown")
+
+        timestamp = int(_time.time())
+        command = self._pending_command
+        self._pending_command = None
+
+        if command is None:
+            # type(B) + ping_id(H) + timestamp(I) + command_valid(B)
+            return bytearray(struct.pack(">BHIB", 0x01, ping_id, timestamp, 0))
+
+        cmd_id = command.get("id", 0)
+        cmd_type = command.get("type", 0)
+        cmd_tag = command.get("tag", 0)
+        cmd_args = command.get("args", bytearray())
+        # type(B) + ping_id(H) + timestamp(I) + command_valid(B) + cmd_id(H) + cmd_type(B) + cmd_tag(B) + args
+        header = struct.pack(">BHIBHBB", 0x01, ping_id, timestamp, 1, cmd_id, cmd_type, cmd_tag)
+        return bytearray(header) + bytearray(cmd_args)
+
     def shutdown(self) -> None:
         """
         Shuts down flight computer, stopping all active threads.
         """
-        ...
+        if self._shutdown_flag:
+            return
+        self._shutdown_flag = True
