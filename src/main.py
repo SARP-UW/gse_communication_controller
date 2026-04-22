@@ -85,7 +85,8 @@ def main():
         website = Website(
             port=config['website']['host'],
             website_log_path=os.path.join(_repo_root, 'logs', 'website_log.txt'),
-            flight_computer=flight_computer
+            flight_computer=flight_computer,
+            controller=controller
         )
 
         print("SYSTEM STATUS: System running!")

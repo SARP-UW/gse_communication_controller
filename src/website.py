@@ -45,11 +45,12 @@ class Website:
                     if settings.PRINT_WEBSITE_ERRORS:
                         print(f"WEBSITE ERROR: Update website error: {e}")
 
-    def __init__(self, port: int, website_log_path: str, flight_computer=None,):
+    def __init__(self, port: int, website_log_path: str, flight_computer=None, controller=None):
         self.app = Flask(__name__)
         self.socketio = SocketIO(self.app, cors_allowed_origins="*")
 
         self.flight_computer = flight_computer   #pass FlightComputer() here
+        self.controller = controller
 
         self._start_time_ms = int(time.time() * 1000)
         self._streaming = False
@@ -147,9 +148,13 @@ class Website:
         """One clean snapshot of everything useful."""
         if self.flight_computer is None:
             raise RuntimeError("No flight_computer passed into Website(...)")
-
+        if self.controller is None:
+            raise RuntimeError("No controller passed into Website(...)")
+        
         fc = self.flight_computer
-        return {
+        cc = self.controller
+
+        fc_snapshot = {
             "time_since_start_ms": fc.time_since_start,
             "mode": fc.mode,
             "sleep": fc.sleep,
@@ -158,6 +163,15 @@ class Website:
             "valves": self._jsonify_keys(fc.valve_states),
             "servos": self._jsonify_keys(fc.servo_states),
             "command_status": fc.command_status,
+        }
+        cc_snapshot = {
+            "sensors": self._jsonify_keys(cc.passthrough_pressure_sensor_data),
+            "valves": self._jsonify_keys(cc.passthrough_valve_states),
+            "qdc": self._jsonify_keys(cc.qdc_actuator_states),
+        }
+        return {
+            "fc": fc_snapshot,
+            "cc": cc_snapshot
         }
 
     def build_telemetry_payload(self):
@@ -169,11 +183,14 @@ class Website:
             client_count = self._client_count
             sample_hz = self._sample_hz
             streaming = self._streaming
-
+            
+            # Note, if i2c reads become slow enough to cause noticeable blocking we can consider moving the read outside the lock.
+            telemetry_snapshot = self.read_telemetry_snapshot()
         return {
             "ts_ms": int(time.time() * 1000),
             "seq": seq,
-            "fc": self.read_telemetry_snapshot(),
+            "fc": telemetry_snapshot["fc"],
+            "cc": telemetry_snapshot["cc"],
             "api": {
                 "connected_clients": client_count,
                 "sample_hz": sample_hz,
