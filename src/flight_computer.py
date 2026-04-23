@@ -1,7 +1,5 @@
 import datetime
 import threading
-from src.radio import Radio
-from src.rs485_bus import RS485Bus
 from src.qdc_actuator import QDCActuator
 from src.passthrough_valve import PassthroughValve
 from src.passthrough_pressure_sensor import PassthroughPressureSensor
@@ -185,9 +183,7 @@ _FC_BYTEORDER: Literal['little', 'big'] = 'little'
 
 class FlightComputer:
     
-    def __init__(self, rs485_bus: RS485Bus, radio: Radio) -> None:
-        self._rs485_bus = rs485_bus
-        self._radio = radio
+    def __init__(self) -> None:
         # --- static info (populated from config) ---
         self._adc_sensor_info: List[Dict] = []
         self._valve_info: List[Dict] = []
@@ -237,9 +233,6 @@ class FlightComputer:
 
         self._status_message_lookup: Optional[Dict] = None
 
-        read_downlink_thread = threading.Thread(target = self._read_downlink_loop, daemon = True)
-        read_downlink_thread.start()
-        
     def __del__(self) -> None:
         """
         Destructor for FlightComputer, shuts down system.
@@ -564,59 +557,21 @@ class FlightComputer:
             raise RuntimeError("Cannot read command_status after shutdown")
         return dict(self._command_status)
     
-    def _read_downlink_loop(self, sample_hz: int):
-        """
-        Parses data from flight computer and sends command packet as necessary
-        """
-        # Read rs485, if not there, then try radio. Need to set frequency? what if buf in
-        # middle of packet stream?  this loop handle collecting and packing?
-
-        last_rs485_packet = bytearray()
-        while not self._shutdown_flag:
-            rs485_buf = self._rs485_bus.read()
-            radio_buf = self._radio.receive()
-
-            # rs485 is one stream of bytes, so have to handle getting middle of a packet?
-            if len(rs485_buf) > 0:
-                if MAGIC_NUM in rs485_buf:
-                    if rs485_buf.find(MAGIC_NUM) == 0 and len(last_rs485_packet) > 0:
-                        self._parse_packet(self, last_rs485_packet)
-                        last_rs485_packet = bytearray()
-
-                    rs485_buf_list = rs485_buf.split(MAGIC_NUM)
-
-                    if len(last_rs485_packet) > 0:
-                        last_rs485_packet += rs485_buf_list[0]
-                        del rs485_buf_list[0]
-                        self._parse_packet(self, last_rs485_packet[:])
-                        last_rs485_packet = bytearray()
-                    for packet in rs485_buf_list:
-                        self._parse_packet(self, packet[:])
-                else:
-                    if len(last_rs485_packet) > 0:
-                        last_rs485_packet += rs485_buf
-            
-            # Assuming each radio packet is the full packet
-            if len(radio_buf) > 0:
-                for packet in radio_buf:
-                    if radio_buf.find(MAGIC_NUM) == 0:
-                        self._parse_packet(self, packet[8:])
-
     def _parse_packet(self, packet: bytearray):
         """
         Determines what kind of packet it is and parses accordingly
         """
         match packet[0]:
             case 0x01:
-                self._parse_sensor_packet(self, packet[1:])
+                self._parse_sensor_packet(packet[1:])
             case 0x02:
-                self._parse_gps_packet(self, packet[1:])
+                self._parse_gps_packet(packet[1:])
             case 0x03:
-                self._parse_adc_packet(self, packet[1:])
+                self._parse_adc_packet(packet[1:])
             case 0x04:
-                self._parse_state_packet(self, packet[1:])
+                self._parse_state_packet(packet[1:])
             case 0x05:
-                self._parse_comm_packet(self, packet[1:])
+                self._parse_comm_packet(packet[1:])
             case _:
                 raise ValueError(f"Invalid packet type: {packet[0]} > 5")
 
@@ -676,7 +631,7 @@ class FlightComputer:
             return
         if packet[0] == 0x00: # packet index. Need more later?
             for i in range(len(self._adc_sensor_info)):
-                self._adc_sensor_data[self._adc_sensor_info[i]["id"]] = int.from_bytes(packet[1 + i:1 + i * 3], _FC_BYTEORDER, signed=True)
+                self._adc_sensor_data[self._adc_sensor_info[i]["id"]] = int.from_bytes(packet[1 + i*3 : 1 + (i+1)*3], _FC_BYTEORDER, signed=True)
             self._sensor_logger.log_data([
                 str(self._adc_sensor_data[s['id']]) for s in self._adc_sensor_info
             ])
@@ -707,6 +662,7 @@ class FlightComputer:
         """
         Parses comm packet
         """
+        self._messages = []
         if (self._last_ping_id != None):
             if (int.from_bytes(packet[0:2], _FC_BYTEORDER) != self._last_ping_id + 1):
                 self._status_logger.log_data(["missed_ping", f"expected {self._last_ping_id + 1}, got {int.from_bytes(packet[0:2], _FC_BYTEORDER)}"])
@@ -724,8 +680,6 @@ class FlightComputer:
 
         for i in range(packet[10]):
             self._messages.append(packet[11 + i])
-        
-        self._send_comm_packet(self)
 
 
     def _command_status_id_to_name(self, id: bytes):
@@ -758,61 +712,34 @@ class FlightComputer:
             case _:
                 raise ValueError(f"Invalid status id: {id} > 0x0A")
 
-    def _send_comm_packet(self):
-        """
-        Send comm packet
-        """
-        packet = bytearray()
-        packet.append(0x01)
-        packet.append(int.to_bytes(self._last_ping_id, 2))
-        packet.append(int.to_bytes(datetime.now(), 4))
-        
-        self._command_lock.acquire()
-        if self._next_command_type != None and self._next_command_tag != None:
-            packet.append(0x01)
-            self._command_id += 1
-            packet.append(int.to_bytes(self._command_id, 2))
-            packet.append(self._next_command_type, 1)
-            self._append_next_command_args(self, packet)
-            self._command_sent = True
-        else:
-            packet.append(0x00)
-        
-        self._command_lock.release()
-
-        self._rs485_bus.write(packet)
-        self._radio.transmit(packet)
-
     def _append_next_command_args(self, packet: bytearray):
         if self._next_command_type == 0x00:
             match self._next_command_tag:
                 case 0x00:
                     if len(self._next_command_args) != 2:
                         return ValueError(f"Expecting 2 arguments for {self._next_command_tag} but received {len(self._next_command_args)}")
-                    packet.append(int.to_bytes(self._next_command_args[0], 1))
-                    packet.append(int.to_bytes(self._next_command_args[1], 1))
+                    packet += self._next_command_args[0].to_bytes(1, _FC_BYTEORDER)
+                    packet += self._next_command_args[1].to_bytes(1, _FC_BYTEORDER)
                 case 0x01:
                     if len(self._next_command_args) != 2:
                         return ValueError(f"Expecting 2 arguments for {self._next_command_tag} but received {len(self._next_command_args)}")
-                    packet.append(int.to_bytes(self._next_command_args[0], 1))
-                    packet.append(int.to_bytes(self._next_command_args[1], 2))
+                    packet += self._next_command_args[0].to_bytes(1, _FC_BYTEORDER)
+                    packet += self._next_command_args[1].to_bytes(2, _FC_BYTEORDER)
                 case 0x02:
                     if len(self._next_command_args) != 2:
                         return ValueError(f"Expecting 2 arguments for {self._next_command_tag} but received {len(self._next_command_args)}")
-                    packet.append(int.to_bytes(self._next_command_args[0], 1))
-                    packet.append(int.to_bytes(self._next_command_args[1], 2))
+                    packet += self._next_command_args[0].to_bytes(1, _FC_BYTEORDER)
+                    packet += self._next_command_args[1].to_bytes(2, _FC_BYTEORDER)
                 case 0x03:
-                    if len(self._next_command_args) != 2:
+                    if len(self._next_command_args) != 3:
                         return ValueError(f"Expecting 3 arguments for {self._next_command_tag} but received {len(self._next_command_args)}")
-                    packet.append(int.to_bytes(self._next_command_args[0], 1))
-                    packet.append(int.to_bytes(self._next_command_args[1], 2))
-                    packet.append(int.to_bytes(self._next_command_args[2], 2))
+                    packet += self._next_command_args[0].to_bytes(1, _FC_BYTEORDER)
+                    packet += self._next_command_args[1].to_bytes(2, _FC_BYTEORDER)
+                    packet += self._next_command_args[2].to_bytes(2, _FC_BYTEORDER)
                 # Finish when commands confirmed
                 case _:
-                    ... # do nothing. Do we need default case?
+                    pass
 
-        # Discussing with Mark
-                    
     def _set_next_command(self, command_type: bytes, command_tag: bytes, args: List[int]):
         if self._shutdown_flag:
             raise RuntimeError("Cannot set mode after shutdown")
@@ -838,7 +765,7 @@ class FlightComputer:
             state (int): The new state of the valve (0 = closed, 1 = open).
         """
         args = [valve_id, state]
-        self._set_next_command(self, 0x00, 0x00, args) # + args
+        self._set_next_command(0x00, 0x00, args)
         
     def pulse_valve(self, valve_id: int, duration_ms: int) -> None:
         """
@@ -849,7 +776,7 @@ class FlightComputer:
             duration_ms (int): The duration to pulse the valve in milliseconds.
         """
         args = [valve_id, duration_ms]
-        self._set_next_command(self, 0x00, 0x01, args)
+        self._set_next_command(0x00, 0x01, args)
         
     def set_servo(self, servo_id: int, value: float) -> None:
         """
@@ -860,7 +787,7 @@ class FlightComputer:
             value (float): The new position of the servo (speed, degrees, or percent).
         """
         args = [servo_id, value]
-        self._set_next_command(self, 0x00, 0x02, args)
+        self._set_next_command(0x00, 0x02, args)
     
     def pulse_servo(self, servo_id: int, value: float, duration_ms: int) -> None:
         """
@@ -872,13 +799,13 @@ class FlightComputer:
             duration_ms (int): The duration to pulse the servo in milliseconds.
         """
         args = [servo_id, value, duration_ms]
-        self._set_next_command(self, 0x00, 0x03, args)
+        self._set_next_command(0x00, 0x03, args)
 
     def restart(self):
         """
         Restarts flight computer. Requres 2 commands to confirm
         """
-        self._set_next_command(self, 0x00, 0x06, [])
+        self._set_next_command(0x00, 0x06, [])
 
     @mode.setter
     def mode(self, new_mode: int) -> None:
@@ -887,7 +814,7 @@ class FlightComputer:
         Cannot be changed after shutdown.
         """
         args = [new_mode]
-        self._set_next_command(self, 0x00, 0x04, args)
+        self._set_next_command(0x00, 0x04, args)
 
 
     @comm_link.setter
@@ -899,7 +826,7 @@ class FlightComputer:
         new_link: 0 = RS485, 1 = radio
         """
         args = [new_link]
-        self._set_next_command(self, 0x00, 0x05, args)
+        self._set_next_command(0x00, 0x05, args)
 
 
     @sleep.setter
@@ -913,9 +840,9 @@ class FlightComputer:
         if value == self._sleep:
             raise ValueError(f"Flight computer is already in {value}")
         if value:
-            self._set_next_command(self, 0x00, 0x04, [])
+            self._set_next_command(0x00, 0x04, [])
         else:
-            self._set_next_command(self, 0x00, 0x05, [])
+            self._set_next_command(0x00, 0x05, [])
     
     def send_custom_command(self, command_id: int, args: List[int]) -> None:
         """
@@ -925,8 +852,41 @@ class FlightComputer:
             command_id (int): The tag of the custom command to send.
             args (List[int]): A list of byte-valued arguments for the command.
         """
-        self._set_next_command(self, 0x01, 0x00, args) # add args and change 0x00 to from config
+        self._set_next_command(0x01, 0x00, args)
         
+    def process_packet(self, packet: bytearray) -> Optional[int]:
+        """Parse one incoming packet. Returns ping_id if it was a comm packet, else None."""
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot process packet after shutdown")
+        if packet[:8] == MAGIC_NUM:
+            packet = packet[8:]
+        if len(packet) == 0:
+            return None
+        was_comm = packet[0] == 0x05
+        self._parse_packet(packet)
+        return self._last_ping_id if was_comm else None
+
+    def build_comm_response(self, ping_id: int) -> bytearray:
+        """Build and return the uplink comm packet for the given ping_id."""
+        if self._shutdown_flag:
+            raise RuntimeError("Cannot build comm response after shutdown")
+        packet = bytearray()
+        packet += bytearray([0x01])
+        packet += ping_id.to_bytes(2, _FC_BYTEORDER)
+        packet += int(datetime.datetime.now().timestamp()).to_bytes(4, _FC_BYTEORDER)
+        with self._command_lock:
+            if self._next_command_type is not None and self._next_command_tag is not None:
+                packet += bytearray([0x01])
+                self._command_id = (self._command_id or 0) + 1
+                packet += self._command_id.to_bytes(2, _FC_BYTEORDER)
+                packet += bytes([self._next_command_type])
+                packet += bytes([self._next_command_tag])
+                self._append_next_command_args(packet)
+                self._command_sent = True
+            else:
+                packet += bytearray([0x00])
+        return MAGIC_NUM + packet
+
     def shutdown(self) -> None:
         """
         Shuts down flight computer, stopping all active threads.
@@ -934,5 +894,4 @@ class FlightComputer:
         if self._shutdown_flag:
             raise RuntimeError("Cannot shutdown flight computer more than once")
         self._status_logger.log_data(['shutdown', 'flight computer shutdown'])
-        self.read_downlink_thread.stop()
         self._shutdown_flag = True
