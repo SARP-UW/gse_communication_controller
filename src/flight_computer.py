@@ -677,6 +677,9 @@ class FlightComputer:
         if packet[0] == 0x00: # packet index. Need more later?
             for i in range(len(self._adc_sensor_info)):
                 self._adc_sensor_data[self._adc_sensor_info[i]["id"]] = int.from_bytes(packet[1 + i:1 + i * 3], _FC_BYTEORDER, signed=True)
+            self._sensor_logger.log_data([
+                str(self._adc_sensor_data[s['id']]) for s in self._adc_sensor_info
+            ])
 
     def _parse_state_packet(self, packet: bytearray):
         """
@@ -694,6 +697,11 @@ class FlightComputer:
 
         for i in range(len(self._servo_info)):
             self._servo_states[self._servo_info[i]["id"]] = int.from_bytes(packet[valve_num_bytes + i:valve_num_bytes + i * 3], _FC_BYTEORDER)
+
+        self._state_logger.log_data(
+            [str(self._valve_states[v['id']]) for v in self._valve_info] +
+            [str(self._servo_states[s['id']]) for s in self._servo_info]
+        )
 
     def _parse_comm_packet(self, packet: bytearray):
         """
@@ -925,5 +933,6 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot shutdown flight computer more than once")
+        self._status_logger.log_data(['shutdown', 'flight computer shutdown'])
         self.read_downlink_thread.stop()
         self._shutdown_flag = True

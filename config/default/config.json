@@ -87,7 +87,7 @@
         "parity": "N"
     },
     "radio": {
-        "config_file": "__rel__\\config\\default\\radio_config.c",
+        "config_file": "__rel__/config/default/radio_config.c",
         "channel": 0
     },
     "flight_computer": {
