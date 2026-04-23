@@ -19,6 +19,66 @@
             "wire_2_locked_state": "high"
         }
     ],
+    "passthrough_pressure_sensors": [
+        {
+            "input": 1,
+            "name": "Passthrough pressure sensor 1",
+            "voltage_range": {
+                "min": 0.5,
+                "max": 4.5
+            },
+            "pressure_range": {
+                "min": 0,
+                "max": 1000
+            }
+        },
+        {
+            "input": 2,
+            "name": "Passthrough pressure sensor 2",
+            "voltage_range": {
+                "min": 0.5,
+                "max": 4.5
+            },
+            "pressure_range": {
+                "min": 0,
+                "max": 1000
+            }
+        },
+        {
+            "input": 3,
+            "name": "Passthrough pressure sensor 3",
+            "voltage_range": {
+                "min": 0.5,
+                "max": 4.5
+            },
+            "pressure_range": {
+                "min": 0,
+                "max": 1000
+            }
+        }
+    ],
+    "passthrough_valves": [
+        {
+            "input": 1,
+            "name": "Passthrough valve 1",
+            "default_state": "closed"
+        },
+        {
+            "input": 2,
+            "name": "Passthrough valve 2",
+            "default_state": "closed"
+        },
+        {
+            "input": 3,
+            "name": "Passthrough valve 3",
+            "default_state": "closed"
+        },
+        {
+            "input": 4,
+            "name": "Passthrough valve 4",
+            "default_state": "closed"
+        }
+    ],
     "rs485_bus": {
         "baudrate": 115200,
         "data_bits": 8,
@@ -30,9 +90,9 @@
         "channel": 0
     },
     "flight_computer": {
-        "sensor_log_path": "__rel__\\..\\..\\logs\\flight_computer_sensor_log.txt",
-        "state_log_path": "__rel__\\..\\..\\logs\\system_state_log.txt",
-        "status_log_path": "__rel__\\..\\..\\logs\\flight_computer_status_log.txt",
+        "sensor_log_path": "__rel__/logs/sensor_log.csv",
+        "state_log_path": "__rel__/logs/system_state_log.csv",
+        "status_log_path": "__rel__/logs/flight_computer_status_log.csv",
         "adc_sensors": [
             {
                 "protocol_index": 1,
@@ -86,66 +146,6 @@
                 "name": "Servo 3",
                 "type": "linear",
                 "max_value": 1000 
-            }
-        ],
-        "passthrough_pressure_sensors": [
-            {
-                "input": 1,
-                "name": "Passthrough pressure sensor 1",
-                "voltage_range": {
-                    "min": 0.5,
-                    "max": 4.5
-                },
-                "pressure_range": {
-                    "min": 0,
-                    "max": 1000
-                }
-            },
-            {
-                "input": 2,
-                "name": "Passthrough pressure sensor 2",
-                "voltage_range": {
-                    "min": 0.5,
-                    "max": 4.5
-                },
-                "pressure_range": {
-                    "min": 0,
-                    "max": 1000
-                }
-            },
-            {
-                "input": 3,
-                "name": "Passthrough pressure sensor 3",
-                "voltage_range": {
-                    "min": 0.5,
-                    "max": 4.5
-                },
-                "pressure_range": {
-                    "min": 0,
-                    "max": 1000
-                }
-            }
-        ],
-        "passthrough_valves": [
-            {
-                "input": 1,
-                "name": "Passthrough valve 1",
-                "default_state": "closed"
-            },
-            {
-                "input": 2,
-                "name": "Passthrough valve 2",
-                "default_state": "closed"
-            },
-            {
-                "input": 3,
-                "name": "Passthrough valve 3",
-                "default_state": "closed"
-            },
-            {
-                "input": 4,
-                "name": "Passthrough valve 4",
-                "default_state": "closed"
             }
         ],
         "custom_commands": [

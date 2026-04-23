@@ -75,15 +75,13 @@ class Controller:
         radio = Radio.from_config(radio_cfg)
         rs485 = RS485Bus.from_config(config["rs485_bus"])
 
-        fc_cfg = config.get("flight_computer", {})
-
         valves = [
             PassthroughValve.from_config(v)
-            for v in fc_cfg.get("passthrough_valves", [])
+            for v in config.get("passthrough_valves", [])
         ]
         sensors = [
             PassthroughPressureSensor.from_config(s)
-            for s in fc_cfg.get("passthrough_pressure_sensors", [])
+            for s in config.get("passthrough_pressure_sensors", [])
         ]
         qdc_actuators = [
             QDCActuator.from_config(q)
