@@ -30,6 +30,7 @@ class Logger:
             full_path = LOGGER_PROJECT_DIR_PATH + path[len(LOGGER_RELATIVE_PATH_KEYWORD):]
             
         self._path: str = full_path
+        Path(self._path).parent.mkdir(parents=True, exist_ok=True)  # Create parent directories if they don't exist
         self._col: List[str] = col
         
         # Write CSV header only if matching one does not already exist at top of file

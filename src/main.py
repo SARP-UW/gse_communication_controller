@@ -7,6 +7,7 @@ import socket
 from src.controller import Controller
 from src.flight_computer import FlightComputer
 from src.website import Website
+from src.logger import Logger
 
 def _get_ip_str() -> str:
     """
@@ -79,6 +80,12 @@ def main():
         print("SYSTEM STATUS: Initializing flight computer...")
         flight_computer = FlightComputer.from_config(config['flight_computer'])
 
+        print("SYSTEM STATUS: Initializing loggers...")
+        cc_sensor_logger = Logger(
+            config['cc_sensor_log_path'],
+            [s['name'] for s in config['passthrough_pressure_sensors']]
+        )
+
         print("SYSTEM STATUS: Initializing website...")
         # Note: config['website']['host'] holds the port number (8080), not a hostname.
         _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -94,6 +101,7 @@ def main():
 
         # Comm loop: poll both links every 5 ms, respond to FC comm heartbeats
         _COMM_POLL_INTERVAL = 0.005  # 5 ms — well within the 10 ms response window
+        _tick = 0
         while True:
             packets = controller.receive_packets()
             for packet in packets:
@@ -102,6 +110,13 @@ def main():
                     # FC sent a comm packet — respond immediately
                     response = flight_computer.build_comm_response(ping_id)
                     controller.transmit_packets([response])
+            _tick += 1
+            if _tick % 20 == 0:
+                sensor_data = controller.passthrough_pressure_sensor_data
+                cc_sensor_logger.log_data([
+                    str(sensor_data[s['input']])
+                    for s in config['passthrough_pressure_sensors']
+                ])
             time.sleep(_COMM_POLL_INTERVAL)
 
     except KeyboardInterrupt:

@@ -7,7 +7,7 @@ from src.passthrough_valve import PassthroughValve
 from src.passthrough_pressure_sensor import PassthroughPressureSensor
 from src.logger import Logger
 from threading import Lock
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 import struct
 import time as _time
 
@@ -179,7 +179,9 @@ import time as _time
             # Restart (2 commands to confirm)
                 #0x06
 
-MAGIC_NUM = bytearray([0x4A, 0x42, 0x4D, 0x45, 0x4A, 0x4D, 0x53, 0x52]) 
+MAGIC_NUM = bytearray([0x4A, 0x42, 0x4D, 0x45, 0x4A, 0x4D, 0x53, 0x52])
+# TODO: confirm byte order with FC team
+_FC_BYTEORDER: Literal['little', 'big'] = 'little'
 
 class FlightComputer:
     
@@ -229,6 +231,12 @@ class FlightComputer:
         self._adc_packet_map: Dict[int, List[int]] = {}  # packet_index -> ordered list of sensor ids
         self._shutdown_flag: bool = False
         
+        self._sensor_logger: Optional[Logger] = None
+        self._state_logger: Optional[Logger] = None
+        self._status_logger: Optional[Logger] = None
+
+        self._status_message_lookup: Optional[Dict] = None
+
         read_downlink_thread = threading.Thread(target = self._read_downlink_loop, daemon = True)
         read_downlink_thread.start()
         
@@ -335,6 +343,19 @@ class FlightComputer:
         fc._adc_sensor_data = {sensor['id']: 0.0 for sensor in fc._adc_sensor_info}
         fc._valve_states = {valve['id']: "unknown" for valve in fc._valve_info}
         fc._servo_states = {servo['id']: 0.0 for servo in fc._servo_info}
+
+        sensor_columns = [s['name'] for s in config['adc_sensors']]
+        fc._sensor_logger = Logger(config['sensor_log_path'], sensor_columns)
+        
+        valve_columns = [v['name'] for v in config['valves']]
+        servo_columns = [s['name'] for s in config['servos']]
+        fc._state_logger = Logger(config['state_log_path'], valve_columns + servo_columns)
+        
+        fc._status_message_lookup = {                                                                                                                                                            
+            msg['tag']: msg['message'] for msg in config.get('status_messages', [])                                                                                                                                         
+        }    
+        fc._status_logger = Logger(config['status_log_path'], ['event', 'description'])
+        fc._status_logger.log_data(['startup', 'Flight computer object initialized from config'])
 
         return fc
     
@@ -603,49 +624,49 @@ class FlightComputer:
         """
         Parses sensor packet
         """
-        self._imu_sensor_data[1]["accel_x"] = int.from_bytes(packet[0:2], signed=True)
-        self._imu_sensor_data[1]["accel_y"] = int.from_bytes(packet[2:4], signed=True)
-        self._imu_sensor_data[1]["accel_z"] = int.from_bytes(packet[4:6], signed=True)
-        self._imu_sensor_data[1]["gyro_x"] = int.from_bytes(packet[6:8], signed=True)
-        self._imu_sensor_data[1]["gyro_y"] = int.from_bytes(packet[8:10], signed=True)
-        self._imu_sensor_data[1]["gyro_z"] = int.from_bytes(packet[10:12], signed=True)
+        self._imu_sensor_data[1]["accel_x"] = int.from_bytes(packet[0:2], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[1]["accel_y"] = int.from_bytes(packet[2:4], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[1]["accel_z"] = int.from_bytes(packet[4:6], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[1]["gyro_x"] = int.from_bytes(packet[6:8], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[1]["gyro_y"] = int.from_bytes(packet[8:10], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[1]["gyro_z"] = int.from_bytes(packet[10:12], _FC_BYTEORDER, signed=True)
 
-        self._imu_sensor_data[2]["accel_x"] = int.from_bytes(packet[12:14], signed=True)
-        self._imu_sensor_data[2]["accel_y"] = int.from_bytes(packet[14:16], signed=True)
-        self._imu_sensor_data[2]["accel_z"] = int.from_bytes(packet[16:18], signed=True)
-        self._imu_sensor_data[2]["gyro_x"] = int.from_bytes(packet[18:20], signed=True)
-        self._imu_sensor_data[2]["gyro_y"] = int.from_bytes(packet[20:22], signed=True)
-        self._imu_sensor_data[2]["gyro_z"] = int.from_bytes(packet[22:24], signed=True)
+        self._imu_sensor_data[2]["accel_x"] = int.from_bytes(packet[12:14], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[2]["accel_y"] = int.from_bytes(packet[14:16], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[2]["accel_z"] = int.from_bytes(packet[16:18], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[2]["gyro_x"] = int.from_bytes(packet[18:20], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[2]["gyro_y"] = int.from_bytes(packet[20:22], _FC_BYTEORDER, signed=True)
+        self._imu_sensor_data[2]["gyro_z"] = int.from_bytes(packet[22:24], _FC_BYTEORDER, signed=True)
 
-        self._magnetometer_sensor_data[1]["mag_x"] = int.from_bytes(packet[24:26], signed=True)
-        self._magnetometer_sensor_data[1]["mag_y"] = int.from_bytes(packet[26:28], signed=True)
-        self._magnetometer_sensor_data[1]["mag_z"] = int.from_bytes(packet[28:30], signed=True)
+        self._magnetometer_sensor_data[1]["mag_x"] = int.from_bytes(packet[24:26], _FC_BYTEORDER, signed=True)
+        self._magnetometer_sensor_data[1]["mag_y"] = int.from_bytes(packet[26:28], _FC_BYTEORDER, signed=True)
+        self._magnetometer_sensor_data[1]["mag_z"] = int.from_bytes(packet[28:30], _FC_BYTEORDER, signed=True)
 
-        self._magnetometer_sensor_data[2]["mag_x"] = int.from_bytes(packet[30:32], signed=True)
-        self._magnetometer_sensor_data[2]["mag_y"] = int.from_bytes(packet[32:34], signed=True)
-        self._magnetometer_sensor_data[2]["mag_z"] = int.from_bytes(packet[34:36], signed=True)
+        self._magnetometer_sensor_data[2]["mag_x"] = int.from_bytes(packet[30:32], _FC_BYTEORDER, signed=True)
+        self._magnetometer_sensor_data[2]["mag_y"] = int.from_bytes(packet[32:34], _FC_BYTEORDER, signed=True)
+        self._magnetometer_sensor_data[2]["mag_z"] = int.from_bytes(packet[34:36], _FC_BYTEORDER, signed=True)
 
-        self._barometer_sensor_data[1] = int.from_bytes(packet[36:39])
-        self._barometer_sensor_data[2] = int.from_bytes(packet[39:42])
+        self._barometer_sensor_data[1] = int.from_bytes(packet[36:39], _FC_BYTEORDER)
+        self._barometer_sensor_data[2] = int.from_bytes(packet[39:42], _FC_BYTEORDER)
 
-        self._temperature_sensor_data[1] = int.from_bytes(packet[42:44], signed=True)
-        self._temperature_sensor_data[2] = int.from_bytes(packet[44:46], signed=True)
+        self._temperature_sensor_data[1] = int.from_bytes(packet[42:44], _FC_BYTEORDER, signed=True)
+        self._temperature_sensor_data[2] = int.from_bytes(packet[44:46], _FC_BYTEORDER, signed=True)
 
-        self._current_sensor_data[1] = int.from_bytes(packet[46:48])
-        self._current_sensor_data[2] = int.from_bytes(packet[48:50])
-        self._current_sensor_data[3] = int.from_bytes(packet[50:52])
+        self._current_sensor_data[1] = int.from_bytes(packet[46:48], _FC_BYTEORDER)
+        self._current_sensor_data[2] = int.from_bytes(packet[48:50], _FC_BYTEORDER)
+        self._current_sensor_data[3] = int.from_bytes(packet[50:52], _FC_BYTEORDER)
 
     def _parse_gps_packet(self, packet: bytearray):
         """
         Parses GPS data packet
         """
-        self._gps_sensor_data["latitude"] = int.from_bytes(packet[0:4])
-        self._gps_sensor_data["longitude"] = int.from_bytes(packet[4:8])
-        self._gps_sensor_data["altitude"] = int.from_bytes(packet[8:12])
-        self._gps_sensor_data["velocity_x"] = int.from_bytes(packet[12:14])
-        self._gps_sensor_data["velocity_y"] = int.from_bytes(packet[14:16])
-        self._gps_sensor_data["velocity_z"] = int.from_bytes(packet[16:18])
-        self._gps_sensor_data["time"] = int.from_bytes(packet[18:22])
+        self._gps_sensor_data["latitude"] = int.from_bytes(packet[0:4], _FC_BYTEORDER)
+        self._gps_sensor_data["longitude"] = int.from_bytes(packet[4:8], _FC_BYTEORDER)
+        self._gps_sensor_data["altitude"] = int.from_bytes(packet[8:12], _FC_BYTEORDER)
+        self._gps_sensor_data["velocity_x"] = int.from_bytes(packet[12:14], _FC_BYTEORDER)
+        self._gps_sensor_data["velocity_y"] = int.from_bytes(packet[14:16], _FC_BYTEORDER)
+        self._gps_sensor_data["velocity_z"] = int.from_bytes(packet[16:18], _FC_BYTEORDER)
+        self._gps_sensor_data["time"] = int.from_bytes(packet[18:22], _FC_BYTEORDER)
 
     def _parse_adc_packet(self, packet: bytearray):
         """
@@ -655,7 +676,7 @@ class FlightComputer:
             return
         if packet[0] == 0x00: # packet index. Need more later?
             for i in range(len(self._adc_sensor_info)):
-                self._adc_sensor_data[self._adc_sensor_info[i]["id"]] = int.from_bytes(packet[1 + i:1 + i * 3], signed=True)
+                self._adc_sensor_data[self._adc_sensor_info[i]["id"]] = int.from_bytes(packet[1 + i:1 + i * 3], _FC_BYTEORDER, signed=True)
 
     def _parse_state_packet(self, packet: bytearray):
         """
@@ -669,35 +690,31 @@ class FlightComputer:
 
         for i in range(valve_num_bytes):
             for j in range(max(8, valve_count - (8 * i))):
-                self._valve_states[self._valve_info[(i * 8) + j]["id"]] = (int.from_bytes(packet[i]) >> j) & 1
-        
+                self._valve_states[self._valve_info[(i * 8) + j]["id"]] = (packet[i] >> j) & 1
+
         for i in range(len(self._servo_info)):
-            self._servo_states[self._servo_info[i]["id"]] = int.from_bytes(packet[valve_num_bytes + i:valve_num_bytes + i * 3])
+            self._servo_states[self._servo_info[i]["id"]] = int.from_bytes(packet[valve_num_bytes + i:valve_num_bytes + i * 3], _FC_BYTEORDER)
 
     def _parse_comm_packet(self, packet: bytearray):
         """
         Parses comm packet
         """
         if (self._last_ping_id != None):
-            if (int.from_bytes(packet[0:2], 2) != self._last_ping_id + 1):
-                # Tell frontend somehow?
-                # Log last ping and curr ping
-                ...
-        self._last_ping_id = int.from_bytes(packet[0:2], 2)
-        self._mode = int.from_bytes(packet[2], 1)
-        self._time_since_start = int.from_bytes(packet[3:7])
-        
-        if (int.from_bytes(packet[7:9]) != self._last_command_id):
-            # Tell frontend somehow?
-            # Log last command id and curr command id
-            # Resend command?
-            ...
-        
-        self._command_status["cmd_tag"] = int.from_bytes(packet[7:9])
+            if (int.from_bytes(packet[0:2], _FC_BYTEORDER) != self._last_ping_id + 1):
+                self._status_logger.log_data(["missed_ping", f"expected {self._last_ping_id + 1}, got {int.from_bytes(packet[0:2], _FC_BYTEORDER)}"])
+        self._last_ping_id = int.from_bytes(packet[0:2], _FC_BYTEORDER)
+        self._mode = packet[2]
+        self._time_since_start = int.from_bytes(packet[3:7], _FC_BYTEORDER)
+
+        curr_command_id = int.from_bytes(packet[7:9], _FC_BYTEORDER)
+        if curr_command_id != self._last_command_id:
+            self._status_logger.log_data(["command_status_change", f"cmd_id {curr_command_id}, status {self._command_status_id_to_name(packet[9])}"])
+
+        self._command_status["cmd_tag"] = curr_command_id
         self._command_status["status_id"] = packet[9]
         self._command_status["status_name"] = self._command_status_id_to_name(packet[9])
-        
-        for i in range(int.from_bytes(packet[10])):
+
+        for i in range(packet[10]):
             self._messages.append(packet[11 + i])
         
         self._send_comm_packet(self)

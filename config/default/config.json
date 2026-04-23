@@ -3,6 +3,7 @@
         "title": "GSE Communication Controller",
         "host": 8080
     },
+    "cc_sensor_log_path": "__rel__/logs/cc_sensor_log.csv",
     "qdc_actuator": [
         {
             "actuator_id": 1,
