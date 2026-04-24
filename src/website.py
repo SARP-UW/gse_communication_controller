@@ -131,7 +131,7 @@ class Website:
         update_website_thread.start()
 
         flask_thread = threading.Thread(
-            target = lambda: self.socketio.run(self._app, host = '0.0.0.0', port = self._port, threaded = True),
+            target = lambda: self.socketio.run(self._app, host = '0.0.0.0', port = self._port),
             daemon = True
         )
         flask_thread.start()
