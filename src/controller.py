@@ -68,11 +68,7 @@ class Controller:
         Args:
             config: The parsed config.json dict.
         """
-        radio_cfg = {
-            "radio_config_path": _resolve_config_path(config["radio"]["config_file"]),
-            "channel": config["radio"]["channel"],
-        }
-        radio = Radio.from_config(radio_cfg)
+        radio = Radio.from_config(config["radio"])
         rs485 = RS485Bus.from_config(config["rs485_bus"])
 
         valves = [

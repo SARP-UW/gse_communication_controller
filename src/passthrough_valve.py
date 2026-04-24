@@ -155,8 +155,11 @@ class PassthroughValve:
         if self._shutdown_flag:
             raise RuntimeError("Cannot modify passthrough valve override state after shutdown")
         if new_value != self._override_state:
+            print(f"Diff passthrough value. Old: {self._override_state}; New: {new_value}. Mock? {settings.MOCK_MODE}")
             self._override_state = new_value
+            print("sanity check")
             if not settings.MOCK_MODE:
+                print("Setting new passthrough value")
                 self._io.value = new_value
 
     def shutdown(self) -> None:

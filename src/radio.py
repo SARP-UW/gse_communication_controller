@@ -1,4 +1,5 @@
 from . import settings
+from pathlib import Path
 from typing import List
 from threading import Thread, Lock, Condition
 from time import sleep, time
@@ -21,6 +22,12 @@ if not settings.MOCK_MODE:
 
     # Radio interrupt (NIRQ) pin number (RPi.GPIO BCM pin number)
     RADIO_NIRQ_PIN = 24
+
+# Path to project root directory (for use in relative paths)
+RADIO_PROJECT_DIR_PATH = str(Path(__file__).parent.parent)
+
+# Relative path keyword
+RADIO_RELATIVE_PATH_KEYWORD = "__rel__"
 
 # Radio argument bounds
 RADIO_MAX_PACKET_SIZE = 64 # Maximum size of a packet for the radio transceiver (in bytes)
@@ -156,17 +163,20 @@ class Radio:
                 with self._rx_queue_lock:
                     self._rx_queue.append(packet_data)      
     
-    def __init__(self, radio_config_path: str, channel: int) -> None:
+    def __init__(self, config_file: str, channel: int) -> None:
         """
         Initializes a Radio object with the given parameters.
         
         Args:
-            radio_config_path: The path to the radio configuration file (C file generated using Silicon Labs WDS).
+            config_file: The path to the radio configuration file (C file generated using Silicon Labs WDS).
             channel: The channel number to use for transmission/reception.
         """
         global radio_init
-        if not os.path.exists(radio_config_path):
-            raise FileNotFoundError(f"Radio configuration file not found: {radio_config_path}")
+        full_path = config_file
+        if config_file.startswith(RADIO_RELATIVE_PATH_KEYWORD):
+            full_path = RADIO_PROJECT_DIR_PATH + config_file[len(RADIO_RELATIVE_PATH_KEYWORD):]
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"Radio configuration file not found: {config_file}")
         if channel < 0:
             raise ValueError(f"Invalid channel number: {channel} < 0")
         if channel > RADIO_MAX_CHANNEL:
@@ -175,9 +185,8 @@ class Radio:
         # Ensure only one Radio is ever initialized (due to shared state in component)
         if radio_init:
             raise RuntimeError("Radio has already been initialized")
-        radio_init = True
         
-        self._radio_config_path: str = radio_config_path
+        self._config_file: str = config_file
         self._channel: int = channel
         self._shutdown_flag: bool = False
         self._tx_queue_lock: Lock = Lock()
@@ -195,7 +204,8 @@ class Radio:
             RPIO.setmode(RPIO.BCM)
             RPIO.setup(RADIO_NIRQ_PIN, RPIO.IN)
             
-            self._spi_bus: SpiDev = SpiDev(
+            self._spi_bus = SpiDev()
+            self._spi_bus.open(
                 bus = 0,
                 device = 0,
             )
@@ -217,7 +227,7 @@ class Radio:
                 raise TimeoutError("Timeout while waiting for CTS after GPIO configuration command")
         
         # Parsing logic for radio configuration file
-        with open(radio_config_path, 'r') as f:
+        with open(config_file, 'r') as f:
             content = f.read()
         
         # Pattern to match the comment block + #define
@@ -278,7 +288,8 @@ class Radio:
         # daemon=True so the thread doesn't keep the process alive if shutdown is never called
         self._tx_thread: Thread = Thread(target=self._tx_thread, daemon=True)
         self._tx_thread.start()
-              
+        radio_init = True
+
     @classmethod
     def from_config(cls, config: dict) -> "Radio":
         """
@@ -287,14 +298,14 @@ class Radio:
         Args:
             config: The target configuration dictionary.
         """
-        if 'radio_config_path' not in config:
-            raise KeyError(f"Radio config missing key: 'radio_config_path'")
+        if 'config_file' not in config:
+            raise KeyError(f"Radio config missing key: 'config_file'")
         if 'channel' not in config:
             raise KeyError(f"Radio config missing key: 'channel'")
         
-        radio_config_path = config['radio_config_path']
-        if not isinstance(radio_config_path, str):
-            raise ValueError(f"Radio config 'radio_config_path' must be a string, got: {type(radio_config_path).__name__}")
+        config_file = config['config_file']
+        if not isinstance(config_file, str):
+            raise ValueError(f"Radio config 'config_file' must be a string, got: {type(config_file).__name__}")
         
         try:
             channel = int(config['channel'])
@@ -302,7 +313,7 @@ class Radio:
             raise ValueError(f"Radio config 'channel' must be an integer, got: {type(config['channel']).__name__}")
         
         return cls(
-            radio_config_path = radio_config_path,
+            config_file = config_file,
             channel = channel
         )
 
@@ -310,7 +321,7 @@ class Radio:
         """
         Gets a string representation of the Radio (ommits current state info).
         """
-        return f"Radio(radio_config_path = {self._radio_config_path}, channel = {self._channel}, radio_properties = {self._radio_property_str})"
+        return f"Radio(config_file = {self._config_file}, channel = {self._channel}, radio_properties = {self._radio_property_str})"
 
     def __del__(self) -> None:
         """
@@ -326,11 +337,11 @@ class Radio:
         return self._shutdown_flag
 
     @property
-    def radio_config_path(self) -> str:
+    def config_file(self) -> str:
         """
         Gets the path to the radio configuration file.
         """
-        return self._radio_config_path
+        return self._config_file
 
     @property
     def channel(self) -> int:

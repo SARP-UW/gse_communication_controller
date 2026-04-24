@@ -99,6 +99,11 @@ def main():
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
 
+        print("Setting passthrough state in main")
+        controller.set_passthrough_valve_state(2, 1)
+        # print(f"Valve States: {controller.passthrough_valve_states}")
+        # controller.set_qdc_actuator_state(1, 1)
+
         # Comm loop: poll both links every 5 ms, respond to FC comm heartbeats
         _COMM_POLL_INTERVAL = 0.005  # 5 ms — well within the 10 ms response window
         _tick = 0
