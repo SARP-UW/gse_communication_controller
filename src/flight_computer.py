@@ -1,4 +1,5 @@
 import datetime
+import math
 import threading
 from src.qdc_actuator import QDCActuator
 from src.passthrough_valve import PassthroughValve
@@ -276,6 +277,8 @@ class FlightComputer:
             raise ValueError(f"Flight computer config 'custom_commands' must be a list, got: {type(config['custom_commands']).__name__}")
 
         fc = cls()
+        fc._imu_sensor_data = {1: {}, 2: {}}
+        fc._magnetometer_sensor_data = {1: {}, 2: {}}
 
         # Populate static info from config
         fc._adc_sensor_info = [
@@ -627,31 +630,38 @@ class FlightComputer:
         """
         Parses ADC data packet
         """
-        if len(packet) < len(self._adc_sensor_info) * 3:
+        packet_idx = packet[0]
+        if packet_idx not in self._adc_packet_map:
             return
-        if packet[0] == 0x00: # packet index. Need more later?
-            for i in range(len(self._adc_sensor_info)):
-                self._adc_sensor_data[self._adc_sensor_info[i]["id"]] = int.from_bytes(packet[1 + i*3 : 1 + (i+1)*3], _FC_BYTEORDER, signed=True)
-            self._sensor_logger.log_data([
-                str(self._adc_sensor_data[s['id']]) for s in self._adc_sensor_info
-            ])
+        sensor_ids = self._adc_packet_map[packet_idx]
+        if len(packet) < 1 + len(sensor_ids) * 3:
+            return
+        for i, sensor_id in enumerate(sensor_ids):
+            self._adc_sensor_data[sensor_id] = int.from_bytes(
+                packet[1 + i*3 : 1 + (i+1)*3], _FC_BYTEORDER, signed=True
+            )
+        self._sensor_logger.log_data([
+            str(self._adc_sensor_data[s['id']]) for s in self._adc_sensor_info
+        ])
 
     def _parse_state_packet(self, packet: bytearray):
         """
         Parses state packet
         """
         valve_count = len(self._valve_info)
-        valve_num_bytes = valve_count / 8 if valve_count % 8 == 0 else valve_count / 8 + 1
+        valve_num_bytes = math.ceil(valve_count / 8)
 
-        if len(packet) < valve_num_bytes + len(self._servo_info) * 3:
+        if len(packet) < valve_num_bytes + len(self._servo_info) * 2:
             return
 
         for i in range(valve_num_bytes):
-            for j in range(max(8, valve_count - (8 * i))):
+            for j in range(min(8, valve_count - (8 * i))):
                 self._valve_states[self._valve_info[(i * 8) + j]["id"]] = (packet[i] >> j) & 1
 
         for i in range(len(self._servo_info)):
-            self._servo_states[self._servo_info[i]["id"]] = int.from_bytes(packet[valve_num_bytes + i:valve_num_bytes + i * 3], _FC_BYTEORDER)
+            self._servo_states[self._servo_info[i]["id"]] = int.from_bytes(
+                packet[valve_num_bytes + i*2 : valve_num_bytes + (i+1)*2], _FC_BYTEORDER
+            )
 
         self._state_logger.log_data(
             [str(self._valve_states[v['id']]) for v in self._valve_info] +
@@ -673,6 +683,7 @@ class FlightComputer:
         curr_command_id = int.from_bytes(packet[7:9], _FC_BYTEORDER)
         if curr_command_id != self._last_command_id:
             self._status_logger.log_data(["command_status_change", f"cmd_id {curr_command_id}, status {self._command_status_id_to_name(packet[9])}"])
+            self._last_command_id = curr_command_id
 
         self._command_status["cmd_tag"] = curr_command_id
         self._command_status["status_id"] = packet[9]
@@ -692,15 +703,15 @@ class FlightComputer:
             case 0x01:
                 return "in progress"
             case 0x02:
-                return "failed due to invalid tag"
+                return "completed successfully"
             case 0x03:
-                return "failed due to invalid arguments"
+                return "failed due to invalid tag"
             case 0x04:
                 return "failed due to invalid arguments"
             case 0x05:
                 return "failed due to out of range arguments"
             case 0x06:
-                return "failed due to hardware error"  
+                return "failed due to hardware error"
             case 0x07:
                 return "failed due to timeout"
             case 0x08:
@@ -893,5 +904,6 @@ class FlightComputer:
         """
         if self._shutdown_flag:
             raise RuntimeError("Cannot shutdown flight computer more than once")
-        self._status_logger.log_data(['shutdown', 'flight computer shutdown'])
+        if self._status_logger:
+            self._status_logger.log_data(['shutdown', 'flight computer shutdown'])
         self._shutdown_flag = True

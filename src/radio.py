@@ -260,6 +260,10 @@ class Radio:
             if not self._wait_cts():
                 raise TimeoutError("Timeout while waiting for CTS after set property command (interrupt property override)")
 
+            self._spi_bus.xfer2(bytearray([RADIO_CMD_SET_PROPERTY]) + RADIO_CFG_INT_CTL_PH_ENABLE_PROP)
+            if not self._wait_cts():
+                raise TimeoutError("Timeout waiting for CTS after PH interrupt enable")
+
             # Configure interrupt on NIRQ pin so _rx_interrupt is called when we receive a packet
             RPIO.add_event_detect(
                 channel = RADIO_NIRQ_PIN,
