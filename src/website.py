@@ -1,7 +1,7 @@
 import time, threading
 import os
 from typing import Callable, Dict
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit
 from .logger import Logger
 from . import settings
@@ -16,8 +16,8 @@ MAX_PORT_VALUE = 65535
 _WEBSITE_TOP_DIR_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
 
 # Absolute path to website template folder
-WEBSITE_TEMPLATE_FOLDER_PATH = os.path.join(_WEBSITE_TOP_DIR_PATH, "templates")
-
+WEBSITE_TEMPLATE_FOLDER_PATH = os.path.join(_WEBSITE_TOP_DIR_PATH, "static")
+print(WEBSITE_TEMPLATE_FOLDER_PATH)
 # Absolute path to website static folder
 WEBSITE_STATIC_FOLDER_PATH = os.path.join(_WEBSITE_TOP_DIR_PATH, "static")
 
@@ -83,6 +83,10 @@ class Website:
             static_folder = WEBSITE_STATIC_FOLDER_PATH
         )
         self.socketio.init_app(self._app)
+
+        @self._app.route('/')
+        def home():
+            return render_template('index.html')
 
         @self._app.get("/api/send_heartbeat")
         def send_heartbeat():
