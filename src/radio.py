@@ -11,6 +11,7 @@ import re
 # https://www.silabs.com/documents/public/data-sheets/Si4468-7.pdf
 
 # Hardware dependent libraries and initialization
+#if not settings.MOCK_MODE:
 if not settings.MOCK_MODE:
     import board
     from digitalio import DigitalInOut, Direction
@@ -18,10 +19,10 @@ if not settings.MOCK_MODE:
     import RPi.GPIO as RPIO
     
     # Radio reset pin number (digitalio pin)
-    RADIO_RESET_PIN = board.D25
+    RADIO_RESET_PIN = board.D24
 
     # Radio interrupt (NIRQ) pin number (RPi.GPIO BCM pin number)
-    RADIO_NIRQ_PIN = 24
+    RADIO_NIRQ_PIN = 25
 
 # Path to project root directory (for use in relative paths)
 RADIO_PROJECT_DIR_PATH = str(Path(__file__).parent.parent)
@@ -72,6 +73,7 @@ class Radio:
         start_time = time()
         while (time() - start_time) < settings.RADIO_CTS_TIMEOUT:
             data = self._spi_bus.xfer2(bytearray([RADIO_CMD_READ_CMD_BUFFER, 0x00]))
+            print(data)
             if data[1] == RADIO_CTS_READY_VALUE:
                 return True
         return False
@@ -215,9 +217,13 @@ class Radio:
             sleep(0.02)
             self._reset_io.value = False
             sleep(0.02)
+
+            if not self._wait_cts():
+                raise TimeoutError("Timeout while waiting for POR (Power on Reset)")
             
             # Power up command takes core system config arguments (use external mems/TXCO oscillator at 30Mhz)
             self._spi_bus.xfer2(bytearray([RADIO_CMD_POWER_UP]) + RADIO_CFG_POWER_UP)
+
             if not self._wait_cts():
                 raise TimeoutError("Timeout while waiting for CTS after power up command")
             
@@ -227,7 +233,7 @@ class Radio:
                 raise TimeoutError("Timeout while waiting for CTS after GPIO configuration command")
         
         # Parsing logic for radio configuration file
-        with open(config_file, 'r') as f:
+        with open(full_path, 'r') as f:
             content = f.read()
         
         # Pattern to match the comment block + #define
@@ -249,8 +255,12 @@ class Radio:
             
             # Parse the byte values from list in the #define (property args) and create a bytearray from it
             bytes_list = [int(b.strip(), 16) for b in bytes_str.split(',')]
+            print(bytes_list)
+            print(f'{group_id} { num_properties}  {start_id}')
             radio_properties.append(bytearray([group_id, num_properties, start_id] + bytes_list))
         
+            # radio_properties.append(bytearray(bytes_list))
+            
         # Get rid of trailing comma and space (added after each property - dont want it at end)
         self._radio_property_str = self._radio_property_str.rstrip(', ')
         
@@ -278,8 +288,9 @@ class Radio:
             RPIO.add_event_detect(
                 channel = RADIO_NIRQ_PIN,
                 edge = RPIO.FALLING,
-                callback = lambda _: self._rx_interrupt()
+                callback = lambda _: self._rex.interrupt()
             )
+            
 
             # Enter RX mode (so that we can receive packets)            
             self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
