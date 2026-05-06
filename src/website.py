@@ -16,7 +16,7 @@ MAX_PORT_VALUE = 65535
 _WEBSITE_TOP_DIR_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "website")
 
 # Absolute path to website template folder
-WEBSITE_TEMPLATE_FOLDER_PATH = os.path.join(_WEBSITE_TOP_DIR_PATH, "static")
+WEBSITE_TEMPLATE_FOLDER_PATH = os.path.join(_WEBSITE_TOP_DIR_PATH, "templates")
 print(WEBSITE_TEMPLATE_FOLDER_PATH)
 # Absolute path to website static folder
 WEBSITE_STATIC_FOLDER_PATH = os.path.join(_WEBSITE_TOP_DIR_PATH, "static")

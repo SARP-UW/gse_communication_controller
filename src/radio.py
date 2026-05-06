@@ -425,7 +425,7 @@ class Radio:
             with self._spi_bus_lock: 
                 RPIO.remove_event_detect(RADIO_NIRQ_PIN)
                 RPIO.cleanup(RADIO_NIRQ_PIN)
-                self._reset_io.deinit()
+           #     self._reset_io.deinit()
                 self._spi_bus.close()
                 
             

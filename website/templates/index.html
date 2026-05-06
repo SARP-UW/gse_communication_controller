@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SARP Launch Controller</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- SmoothieCharts — live sensor graphs (jsdelivr is more reliable than cdnjs for this package) -->
+  <script src="https://cdn.jsdelivr.net/npm/smoothie@1.36.1/smoothie.min.js"></script>
+
+  <!-- Socket.IO client — must match the version the backend uses.
+       Flask-SocketIO 5.x uses Socket.IO protocol v5, so we load v4.x client. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+
+  <!-- Our styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+
+  <!-- =========================================================
+       TOP BAR
+  ========================================================== -->
+  <header id="topbar">
+
+    <div class="topbar-logo">
+      SARP <span>LAUNCH CTRL v0.1</span>
+    </div>
+
+    <div class="topbar-divider"></div>
+
+    <!-- Wall clock -->
+    <div id="clock">00:00:00</div>
+
+    <div class="topbar-divider"></div>
+
+    <!-- Mission elapsed time (from fc.time_since_start_ms) -->
+    <div class="topbar-time-block">
+      <span class="topbar-time-label">MISSION</span>
+      <span id="mission-time">--:--:--</span>
+    </div>
+
+    <div class="topbar-divider"></div>
+
+    <!-- FC mode + sleep state -->
+    <div class="fc-mode-display">
+      <span class="label">FC MODE</span>
+      <span id="fc-mode-value">WAKE</span>
+      <div class="topbar-divider" style="height:14px;"></div>
+      <span class="label">SLEEP</span>
+      <span id="fc-sleep-value" class="sleep-off">OFF</span>
+    </div>
+
+    <div class="topbar-spacer"></div>
+
+    <!-- Communication mode toggle -->
+    <div class="comm-toggle" title="Communication Mode">
+      <button id="comm-radio" class="active" onclick="setCommMode('radio')">RADIO</button>
+      <button id="comm-wired"                onclick="setCommMode('wired')">WIRED</button>
+    </div>
+
+    <!-- Safe mode toggle -->
+    <button id="safe-mode-btn" class="on" onclick="toggleSafeMode()">
+      SAFE MODE: ON
+    </button>
+
+    <!-- Connection indicators -->
+    <div class="conn-group">
+      <div class="conn-indicator" title="Backend heartbeat">
+        <div class="conn-dot disconnected" id="backend-dot"></div>
+        <span>BACKEND</span>
+      </div>
+      <div class="conn-indicator" title="Flight computer connection">
+        <div class="conn-dot disconnected" id="fc-dot"></div>
+        <span>FLIGHT COMP</span>
+      </div>
+    </div>
+
+  </header>
+
+
+  <!-- =========================================================
+       MAIN LAYOUT
+  ========================================================== -->
+  <div id="main">
+
+    <!-- LEFT COLUMN -->
+    <div id="left-col">
+
+      <!-- Altitude -->
+      <div class="panel">
+        <div class="panel-title">ALTITUDE — BAROMETER</div>
+        <div id="altitude-panel">
+          <div>
+            <div class="alt-label">MSL ALTITUDE</div>
+            <div class="altitude-big">
+              <span id="alt-value">0</span><span class="alt-unit">m</span>
+            </div>
+          </div>
+          <div class="altitude-meta">
+            <div class="meta-row">
+              <span class="meta-label">PRESSURE (ABS)</span>
+              <span class="meta-val" id="baro-abs">101.3 kPa</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">CLIMB RATE</span>
+              <span class="meta-val" id="baro-rate">+0.0 m/s</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">TEMPERATURE</span>
+              <span class="meta-val" id="baro-temp">25.0 °C</span>
+            </div>
+            <div class="alt-bar-bg">
+              <div class="alt-bar-fill" id="alt-bar" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Valves -->
+      <div class="panel">
+        <div class="panel-title">VALVE CONTROL</div>
+        <div class="valves-grid" id="valves-container">
+          <!-- Injected by renderValves() -->
+        </div>
+      </div>
+
+      <!-- Servos -->
+      <div class="panel">
+        <div class="panel-title">SERVO MOTOR CONTROL</div>
+        <div class="servos-grid" id="servos-container">
+          <!-- Injected by renderServos() -->
+        </div>
+      </div>
+
+      <!-- Sensors -->
+      <div class="panel">
+        <div class="panel-title">SENSOR TELEMETRY</div>
+        <div class="sensors-grid" id="sensors-container">
+          <!-- Injected by renderSensors() -->
+        </div>
+      </div>
+
+    </div><!-- /left-col -->
+
+
+    <!-- RIGHT COLUMN -->
+    <div id="right-col">
+
+      <!-- System Status — api fields from every telemetry packet -->
+      <div class="panel">
+        <div class="panel-title">SYSTEM STATUS</div>
+        <div class="sys-status-grid">
+          <div class="sys-stat-block">
+            <div class="sys-stat-label">BACKEND UPTIME</div>
+            <div class="sys-stat-value" id="sys-uptime">--:--:--</div>
+          </div>
+          <div class="sys-stat-block">
+            <div class="sys-stat-label">CLIENTS</div>
+            <div class="sys-stat-value" id="sys-clients">--</div>
+          </div>
+          <div class="sys-stat-block">
+            <div class="sys-stat-label">STREAM</div>
+            <div class="sys-stat-value" id="sys-streaming">--</div>
+          </div>
+          <div class="sys-stat-block">
+            <div class="sys-stat-label">RATE</div>
+            <div class="sys-stat-value" id="sys-hz">-- Hz</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FC Mode -->
+      <div class="panel">
+        <div class="panel-title">FLIGHT COMPUTER MODE</div>
+        <div class="fc-mode-current">
+          <div class="mode-label">CURRENT MODE</div>
+          <div id="fc-mode-big">WAKE</div>
+        </div>
+        <div class="fc-mode-buttons" id="fc-mode-buttons">
+          <!-- Injected by renderFcModeButtons() -->
+        </div>
+      </div>
+
+      <!-- Commands -->
+      <div class="panel">
+        <div class="panel-title">COMMAND INTERFACE</div>
+        <div class="cmd-executing-bar">
+          <span class="exec-label">EXECUTING:</span>
+          <span id="exec-cmd-name">none</span>
+          <div class="exec-spinner" id="exec-spinner"></div>
+        </div>
+        <div class="commands-list" id="commands-list">
+          <!-- Injected by renderCommands() -->
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div class="panel">
+        <div class="panel-title">FLIGHT COMPUTER MESSAGES</div>
+        <div class="notif-queue" id="notif-queue">
+          <!-- Injected by addNotification() -->
+        </div>
+        <button class="notif-clear-btn" onclick="clearNotifications()">CLEAR ALL</button>
+      </div>
+
+    </div><!-- /right-col -->
+
+  </div><!-- /main -->
+
+
+  <footer>
+    2026 Student Association of Rocketry and Propulsion (SARP)
+  </footer>
+
+
+  <!-- Safe Mode Modal -->
+  <div id="safe-mode-modal">
+    <div class="safe-modal-box">
+      <div class="safe-icon">!</div>
+      <h3>SAFE MODE ACTIVE</h3>
+      <p>
+        This action is blocked while Safe Mode is ON.
+        Disable Safe Mode to send commands to the rocket.
+      </p>
+      <button onclick="closeSafeModal()">DISMISS</button>
+    </div>
+  </div>
+
+
+  <!-- Scripts: config first so VALVES/SERVOS/etc are defined before main.js runs -->
+  <script src="config.js"></script>
+  <script src="main.js"></script>
+
+</body>
+</html>
