@@ -7,15 +7,15 @@
     "qdc_actuator": [
         {
             "actuator_id": 1,
-            "wire_1_pin": 9,
-            "wire_2_pin": 10,
+            "wire_1_pin": 20,
+            "wire_2_pin": 21,
             "wire_1_locked_state": "high",
             "wire_2_locked_state": "low"
         },
         {
             "actuator_id": 2,
             "wire_1_pin": 19,
-            "wire_2_pin": 20,
+            "wire_2_pin": 26,
             "wire_1_locked_state": "low",
             "wire_2_locked_state": "high"
         }

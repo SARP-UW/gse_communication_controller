@@ -11,8 +11,7 @@ import re
 # https://www.silabs.com/documents/public/data-sheets/Si4468-7.pdf
 
 # Hardware dependent libraries and initialization
-#if not settings.MOCK_MODE:
-if not settings.MOCK_MODE:
+if not settings.MOCK_MODE or not settings.RADIO_MOCK_MODE:
     import board
     from digitalio import DigitalInOut, Direction
     from spidev import SpiDev 
@@ -51,6 +50,7 @@ RADIO_CMD_START_TX = 0x31        # Starts transmission of data in TX FIFO
 RADIO_CMD_START_RX = 0x32        # Starts reception of data into RX FIFO
 RADIO_CMD_PACKET_INFO = 0x16     # Gets information about the received packet
 RADIO_CMD_READ_RX_FIFO = 0x77    # Reads data from RX FIFO
+RADIO_CMD_GET_INT_STATUS = 0x20  # Reads all interrup statuses
 
 # Misc radio register constants
 RADIO_CTS_READY_VALUE = 0xFF                                        # CTS (clear to send) register ready value
@@ -73,7 +73,8 @@ class Radio:
         start_time = time()
         while (time() - start_time) < settings.RADIO_CTS_TIMEOUT:
             data = self._spi_bus.xfer2(bytearray([RADIO_CMD_READ_CMD_BUFFER, 0x00]))
-            print(data)
+            if settings.DEBUG:
+                print(data)
             if data[1] == RADIO_CTS_READY_VALUE:
                 return True
         return False
@@ -92,7 +93,7 @@ class Radio:
 
             # Check shutdown flag again to catch shutdown during wait_for
             if not self._shutdown_flag:
-                if not settings.MOCK_MODE:
+                if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
                     
                     # Extract queued packets to send (prevent blocking with SPI transfers)
                     tx_packets: List[bytearray] = []
@@ -198,18 +199,20 @@ class Radio:
         self._tx_queue: List[bytearray] = []
         self._rx_queue: List[bytearray] = []
         
-        if not settings.MOCK_MODE:
+        if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
             self._reset_io: DigitalInOut = DigitalInOut(RADIO_RESET_PIN)
             self._reset_io.direction = Direction.OUTPUT
             self._reset_io.value = False
-            
+           
+           # this line is a hail mary
+            RPIO.setwarnings(False) 
             RPIO.setmode(RPIO.BCM)
             RPIO.setup(RADIO_NIRQ_PIN, RPIO.IN)
             
             self._spi_bus = SpiDev()
             self._spi_bus.open(
                 bus = 0,
-                device = 0,
+                device = 0
             )
             
             # Reset the radio transceiver
@@ -218,12 +221,16 @@ class Radio:
             self._reset_io.value = False
             sleep(0.02)
 
-            if not self._wait_cts():
-                raise TimeoutError("Timeout while waiting for POR (Power on Reset)")
+            # self._spi_bus.xfer2(bytearray([RADIO_CMD_GET_INT_STATUS, 0x00, 0x00, 0x00]))
+            # self._wait_cts()
             
             # Power up command takes core system config arguments (use external mems/TXCO oscillator at 30Mhz)
             self._spi_bus.xfer2(bytearray([RADIO_CMD_POWER_UP]) + RADIO_CFG_POWER_UP)
 
+            if not self._wait_cts():
+                raise TimeoutError("Timeout while waiting for POR (Power on Reset)")
+            
+            
             if not self._wait_cts():
                 raise TimeoutError("Timeout while waiting for CTS after power up command")
             
@@ -255,8 +262,9 @@ class Radio:
             
             # Parse the byte values from list in the #define (property args) and create a bytearray from it
             bytes_list = [int(b.strip(), 16) for b in bytes_str.split(',')]
-            print(bytes_list)
-            print(f'{group_id} { num_properties}  {start_id}')
+            if settings.DEBUG:
+                print(bytes_list)
+                print(f'{group_id} { num_properties}  {start_id}')
             radio_properties.append(bytearray([group_id, num_properties, start_id] + bytes_list))
         
             # radio_properties.append(bytearray(bytes_list))
@@ -267,7 +275,7 @@ class Radio:
         if len(radio_properties) != 31:
             raise ValueError(f"Invalid number of radio properties: {len(radio_properties)} != 31 (config file is likely incorrect)")
             
-        if not settings.MOCK_MODE:
+        if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
             
             # Set all properties in the radio transceiver using set_property command
             for prop in radio_properties:
@@ -288,7 +296,7 @@ class Radio:
             RPIO.add_event_detect(
                 channel = RADIO_NIRQ_PIN,
                 edge = RPIO.FALLING,
-                callback = lambda _: self._rex.interrupt()
+                callback = lambda _: self._rx_interrupt()
             )
             
 
@@ -421,11 +429,12 @@ class Radio:
             self._tx_thread_condition.notify_all()
         
         # Cleanup IO/SPI only once SPI bus not in use by thread/interrupt (avoid corrupt transfers)
-        if not settings.MOCK_MODE:
-            with self._spi_bus_lock: 
+        if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
+            with self._spi_bus_lock:
                 RPIO.remove_event_detect(RADIO_NIRQ_PIN)
                 RPIO.cleanup(RADIO_NIRQ_PIN)
-           #     self._reset_io.deinit()
+
+                self._reset_io.deinit()
                 self._spi_bus.close()
                 
             

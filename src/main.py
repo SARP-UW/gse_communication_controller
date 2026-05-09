@@ -99,11 +99,52 @@ def main():
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
 
-        print("Setting passthrough state in main")
-        controller.set_passthrough_valve_state(2, 1)
+        # print("Setting passthrough state in main")
+        # horribly written test that iterates through each valve and flips through each state
+        # state = True
+        # idx = 1
+        # while True:
+        #     print(f"Setting valve {idx} state to {state}")
+        #     for i in range(3):
+        #         state = not state
+        #         controller.set_passthrough_valve_state(idx, state)
+        #         time.sleep(2)
+        #     idx += 1
+        #     if idx == 5:
+        #         idx = 1
+
         # print(f"Valve States: {controller.passthrough_valve_states}")
         # controller.set_qdc_actuator_state(1, 1)
 
+        # slightly better written test that iterates through qdc states
+        # states = ["locked", "released"]
+        # actuator_id = 1
+        # state_idx = 0
+
+        # while True:
+        #     print(f"Setting actuator {actuator_id} state to {states[state_idx]}")
+        #     controller.set_qdc_actuator_state(actuator_id, states[state_idx])
+        #     time.sleep(2)
+            
+        #     state_idx += 1
+        #     if state_idx == len(states):
+        #         state_idx = 0
+        #         actuator_id = 2 if actuator_id == 1 else 1
+
+        # extremely minimal rs485 test
+        # Test write does not raise
+        # controller._rs485.write(bytearray([0x01, 0x02, 0x03]))
+        # print("PASS: write did not raise")
+
+        # # Test read does not raise and returns bytearray
+        # time.sleep(0.1)
+        # rx = controller._rs485.read()
+        # assert isinstance(rx, bytearray), f"Expected bytearray, got {type(rx)}"
+        # print(f"PASS: read returned bytearray of length {len(rx)}")
+
+        # print("RS485Bus tests passed!")
+
+        
         # Comm loop: poll both links every 5 ms, respond to FC comm heartbeats
         _COMM_POLL_INTERVAL = 0.005  # 5 ms — well within the 10 ms response window
         _tick = 0

@@ -10,10 +10,10 @@ if not settings.MOCK_MODE:
     # <TODO: Update pins>
     # Mapping of passthrough valve input number to their corresponding GPIO pins
     PST_VALVE_PIN_MAP = {
-        1: board.D13,
+        1: board.D5,
         2: board.D6,
-        3: board.D5,
-        4: board.D11,
+        3: board.D13,
+        4: board.D16,
     }
     
 # Number of supported passthrough valves
@@ -53,6 +53,7 @@ class PassthroughValve:
         self._default_state: str = default_state
         self._override_state: bool = False
         self._shutdown_flag: bool = False
+        
         # Initialize GPIO pin used to control valve
         if not settings.MOCK_MODE:
             self._io: DigitalInOut = DigitalInOut(PST_VALVE_PIN_MAP[input])
