@@ -99,6 +99,11 @@ def main():
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
 
+        a = [bytearray([0x09])]
+        while True:
+            controller._radio.transmit(a)
+            print("Sending 0x09 over radio")
+
         # print("Setting passthrough state in main")
         # horribly written test that iterates through each valve and flips through each state
         # state = True

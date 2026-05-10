@@ -92,6 +92,7 @@ class Radio:
                 )
 
             # Check shutdown flag again to catch shutdown during wait_for
+            print("in tx_thread")
             if not self._shutdown_flag:
                 if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
                     
@@ -99,6 +100,7 @@ class Radio:
                     tx_packets: List[bytearray] = []
                     with self._tx_queue_lock:
                         tx_packets = self._tx_queue.copy()
+                        # print("added + " tx_packets)
                         self._tx_queue.clear()
                     
                     with self._spi_bus_lock:
@@ -115,6 +117,7 @@ class Radio:
                             # Start packet transmission
                             self._spi_bus.xfer2(bytearray([RADIO_CMD_START_TX, self._channel, RADIO_START_TX_CONDITION_ARG, len(packet), 0x00, 0x00]))
                             self._wait_cts()
+                            # print("cleared")
                         
                         # Enter RX mode again if we are in TX mode (packets were sent) (this allows us to receive packets again)
                         if len(tx_packets) > 0:
@@ -388,6 +391,7 @@ class Radio:
         with self._tx_thread_condition:
             for packet in packets:
                 self._tx_queue.append(packet)
+                print("packet appended")
                 
             # Inform TX thread that data is available to send
             self._tx_thread_condition.notify_all()
