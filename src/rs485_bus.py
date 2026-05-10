@@ -10,8 +10,8 @@ if not settings.MOCK_MODE:
     
     # Pins for RS485 bus transciever
     RS485_PORT = '/dev/ttyS0' # Transciever serial (UART) port
-    RS485_DE_PIN = board.D5   # Transciever driver enable pin
-    RS485_RE_PIN = board.D6   # Transciever receiver enable pin
+    RS485_DE_PIN = board.D18   # Transciever driver enable pin
+    RS485_RE_PIN = board.D22   # Transciever receiver enable pin
 
 # RS485 bus argument bounds
 RS485_MAX_BAUDRATE = 2000000 # Maximum supported baudrate for the RS485 bus

@@ -136,6 +136,12 @@ def main():
         # controller._rs485.write(bytearray([0x01, 0x02, 0x03]))
         # print("PASS: write did not raise")
 
+        # 0x55 rs485 test
+        # while True:
+        #     time.sleep(0.0001)
+        #     controller._rs485.write(bytearray([0x55]))
+        #     print("sent 0x55")
+
         # # Test read does not raise and returns bytearray
         # time.sleep(0.1)
         # rx = controller._rs485.read()
