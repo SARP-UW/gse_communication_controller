@@ -11,7 +11,7 @@ import re
 # https://www.silabs.com/documents/public/data-sheets/Si4468-7.pdf
 
 # Hardware dependent libraries and initialization
-if not settings.MOCK_MODE or not settings.RADIO_MOCK_MODE:
+if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
     import board
     from digitalio import DigitalInOut, Direction
     from spidev import SpiDev 
@@ -91,43 +91,35 @@ class Radio:
                     lambda: (len(self._tx_queue) > 0) or self._shutdown_flag
                 )
 
-            # Check shutdown flag again to catch shutdown during wait_for
-            print("in tx_thread")
-            if not self._shutdown_flag:
-                if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
-                    
-                    # Extract queued packets to send (prevent blocking with SPI transfers)
-                    tx_packets: List[bytearray] = []
-                    with self._tx_queue_lock:
-                        tx_packets = self._tx_queue.copy()
-                        # print("added + " tx_packets)
-                        self._tx_queue.clear()
-                    
-                    with self._spi_bus_lock:
-                        for packet in tx_packets:
+                # Extract queued packets to send (prevent blocking with SPI transfers)
+                tx_packets: List[bytearray] = self._tx_queue.copy()
+                self._tx_queue.clear()
+
+                # Check shutdown flag again to catch shutdown during wait_for
+                print("in tx_thread")
+                if not self._shutdown_flag:
+                    if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
+                        with self._spi_bus_lock:
+                            for packet in tx_packets:
+                                
+                                # Clear TX FIFO
+                                self._spi_bus.xfer2(bytearray([RADIO_CMD_FIFO_INFO, RADIO_FIFO_INFO_RESET_TX_FIFO_ARG]))
+                                self._wait_cts()
+                                
+                                print("writing packet: ", packet)
+                                # Write packet to TX FIFO
+                                self._spi_bus.xfer2(bytearray([RADIO_CMD_WRITE_TX_FIFO]) + packet)
+                                self._wait_cts()
+                                
+                                # Start packet transmission
+                                self._spi_bus.xfer2(bytearray([RADIO_CMD_START_TX, self._channel, RADIO_START_TX_CONDITION_ARG, len(packet), 0x00, 0x00]))
+                                self._wait_cts()
+                                print("cleared")
                             
-                            # Clear TX FIFO
-                            self._spi_bus.xfer2(bytearray([RADIO_CMD_FIFO_INFO, RADIO_FIFO_INFO_RESET_TX_FIFO_ARG]))
-                            self._wait_cts()
-                            
-                            # Write packet to TX FIFO
-                            self._spi_bus.xfer2(bytearray([RADIO_CMD_WRITE_TX_FIFO]) + packet)
-                            self._wait_cts()
-                            
-                            # Start packet transmission
-                            self._spi_bus.xfer2(bytearray([RADIO_CMD_START_TX, self._channel, RADIO_START_TX_CONDITION_ARG, len(packet), 0x00, 0x00]))
-                            self._wait_cts()
-                            # print("cleared")
-                        
-                        # Enter RX mode again if we are in TX mode (packets were sent) (this allows us to receive packets again)
-                        if len(tx_packets) > 0:
-                            self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
-                            self._wait_cts()
-                
-                # Simulate "sending" data by clearing the TX queue
-                else:
-                    with self._tx_queue_lock:
-                        self._tx_queue.clear()
+                            # Enter RX mode again if we are in TX mode (packets were sent) (this allows us to receive packets again)
+                            if len(tx_packets) > 0:
+                                self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
+                                self._wait_cts()
     
     def _rx_interrupt(self) -> None:
         """
