@@ -47,11 +47,11 @@ class QDCActuator:
             # Pin numbers are configurable — resolve via board module at runtime
             self._wire_1_io: DigitalInOut = DigitalInOut(getattr(board, f"D{wire_1_pin}"))
             self._wire_1_io.direction = Direction.OUTPUT
-            self._wire_1_io.value = (wire_1_locked_state == "high")
+            self._wire_1_io.value = 0
 
             self._wire_2_io: DigitalInOut = DigitalInOut(getattr(board, f"D{wire_2_pin}"))
             self._wire_2_io.direction = Direction.OUTPUT
-            self._wire_2_io.value = (wire_2_locked_state == "high")
+            self._wire_2_io.value = 0
 
     @classmethod
     def from_config(cls, config: dict) -> "QDCActuator":
@@ -136,18 +136,23 @@ class QDCActuator:
         """Sets actuator state ("locked" or "released"). Cannot be called after shutdown."""
         if self._shutdown_flag:
             raise RuntimeError("Cannot change state of QDC actuator after shutdown")
-        if new_state not in ("locked", "released"):
+        if new_state not in ("locking", "released", "locked"):
             raise ValueError(f"QDC actuator cannot be set to invalid state: {new_state}")
 
+        print("in setter")
         if self._state != new_state:
+            print(f"changing state from {self._state} to {new_state}")
             self._state = new_state
             if not settings.MOCK_MODE:
-                if new_state == "locked":
+                if new_state == "locking":
                     self._wire_1_io.value = (self._wire_1_locked_state == "high")
                     self._wire_2_io.value = (self._wire_2_locked_state == "high")
-                else:
+                elif new_state == "released":
                     self._wire_1_io.value = (self._wire_1_locked_state != "high")
                     self._wire_2_io.value = (self._wire_2_locked_state != "high")
+                else:
+                    self._wire_1_io.value = 0
+                    self._wire_2_io.value = 0
 
     def shutdown(self) -> None:
         """Shuts down this actuator and frees its slot. Safe to call only once."""

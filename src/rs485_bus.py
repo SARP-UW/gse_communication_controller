@@ -50,6 +50,7 @@ class RS485Bus:
 
                     # Enable DE (driver enable) then transmit data
                     if len(queue_data) > 0:
+                        print(f"transmitting data: {queue_data}")
                         with self._tx_uart_lock:
                             self._de_io.value = True
                             self._serial.write(queue_data)
@@ -124,6 +125,7 @@ class RS485Bus:
                 bytesize = data_bits,
                 stopbits = stop_bits,
                 parity = parity,
+                # parity = PARITY_NONE,
                 timeout = 1
             )
             
@@ -241,6 +243,7 @@ class RS485Bus:
         if self._shutdown_flag:
             raise RuntimeError("RS485 bus has been shutdown")
         with self._tx_thread_condition:
+            print("adding to tx")
             self._tx_queue.extend(data)
 
             # Inform TX thread that data is available to send

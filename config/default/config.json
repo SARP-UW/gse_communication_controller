@@ -16,8 +16,8 @@
             "actuator_id": 2,
             "wire_1_pin": 19,
             "wire_2_pin": 26,
-            "wire_1_locked_state": "low",
-            "wire_2_locked_state": "high"
+            "wire_1_locked_state": "high",
+            "wire_2_locked_state": "low"
         }
     ],
     "passthrough_pressure_sensors": [

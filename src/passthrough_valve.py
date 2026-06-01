@@ -13,7 +13,7 @@ if not settings.MOCK_MODE:
         1: board.D5,
         2: board.D6,
         3: board.D13,
-        4: board.D16,
+        4: board.D16
     }
     
 # Number of supported passthrough valves

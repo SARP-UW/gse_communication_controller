@@ -121,6 +121,7 @@ import time as _time
             # 0x08 Command failed due to invalid system state
             # 0x09 Command aborted by flight computer
             # 0x0A Command awaiting confirmation
+            # 0xFF No previously sent command
 
 # Uplink Packets (from CC to FC):
 
@@ -133,6 +134,7 @@ import time as _time
         # <command type (1 byte)> (optional, only if command valid = 1)
         # <command tag (1 byte)> (optional, only if command valid = 1)
         # <command arguments (pre-determined variable length)> (optional, only if command valid = 1)
+        # padding to 64 bytes
 
         # Command types
             # 0x00 Static command
@@ -180,7 +182,9 @@ import time as _time
 
 MAGIC_NUM = bytearray([0x4A, 0x42, 0x4D, 0x45, 0x4A, 0x4D, 0x53, 0x52])
 # TODO: confirm byte order with FC team
-_FC_BYTEORDER: Literal['little', 'big'] = 'little'
+_FC_BYTEORDER: Literal['little', 'big'] = 'big'
+# In theory for all of them, but only necessary for uplink comm packet
+PACKET_LENGTH = 64
 
 class FlightComputer:
     
@@ -564,6 +568,7 @@ class FlightComputer:
         """
         Determines what kind of packet it is and parses accordingly
         """
+        print("parsing packet")
         match packet[0]:
             case 0x01:
                 self._parse_sensor_packet(packet[1:])
@@ -576,12 +581,14 @@ class FlightComputer:
             case 0x05:
                 self._parse_comm_packet(packet[1:])
             case _:
-                raise ValueError(f"Invalid packet type: {packet[0]} > 5")
+                print("Invalid packet type")
+                # raise ValueError(f"Invalid packet type: {packet[0]} > 5")
 
     def _parse_sensor_packet(self, packet: bytearray):
         """
         Parses sensor packet
         """
+        print("parsing sensor packet")
         self._imu_sensor_data[1]["accel_x"] = int.from_bytes(packet[0:2], _FC_BYTEORDER, signed=True)
         self._imu_sensor_data[1]["accel_y"] = int.from_bytes(packet[2:4], _FC_BYTEORDER, signed=True)
         self._imu_sensor_data[1]["accel_z"] = int.from_bytes(packet[4:6], _FC_BYTEORDER, signed=True)
@@ -613,6 +620,7 @@ class FlightComputer:
         self._current_sensor_data[1] = int.from_bytes(packet[46:48], _FC_BYTEORDER)
         self._current_sensor_data[2] = int.from_bytes(packet[48:50], _FC_BYTEORDER)
         self._current_sensor_data[3] = int.from_bytes(packet[50:52], _FC_BYTEORDER)
+        breakpoint()
 
     def _parse_gps_packet(self, packet: bytearray):
         """
@@ -648,6 +656,7 @@ class FlightComputer:
         """
         Parses state packet
         """
+        print("parsing state packet")
         valve_count = len(self._valve_info)
         valve_num_bytes = math.ceil(valve_count / 8)
 
@@ -672,6 +681,8 @@ class FlightComputer:
         """
         Parses comm packet
         """
+        print("parsing comm packet")
+        print(packet)
         self._messages = []
         if (self._last_ping_id != None):
             if (int.from_bytes(packet[0:2], _FC_BYTEORDER) != self._last_ping_id + 1):
@@ -682,7 +693,7 @@ class FlightComputer:
 
         curr_command_id = int.from_bytes(packet[7:9], _FC_BYTEORDER)
         if curr_command_id != self._last_command_id:
-            self._status_logger.log_data(["command_status_change", f"cmd_id {curr_command_id}, status {self._command_status_id_to_name(packet[9])}"])
+            # self._status_logger.log_data(["command_status_change", f"cmd_id {curr_command_id}, status {self._command_status_id_to_name(packet[9])}"])
             self._last_command_id = curr_command_id
 
         self._command_status["cmd_tag"] = curr_command_id
@@ -691,6 +702,7 @@ class FlightComputer:
 
         for i in range(packet[10]):
             self._messages.append(packet[11 + i])
+        
 
 
     def _command_status_id_to_name(self, id: bytes):
@@ -720,6 +732,8 @@ class FlightComputer:
                 return "aborted by flight computer"
             case 0x0A:
                 return "awaiting confirmation"
+            case 0xFF:
+                return "no command previously sent"
             case _:
                 raise ValueError(f"Invalid status id: {id} > 0x0A")
 
@@ -869,6 +883,9 @@ class FlightComputer:
         """Parse one incoming packet. Returns ping_id if it was a comm packet, else None."""
         if self._shutdown_flag:
             raise RuntimeError("Cannot process packet after shutdown")
+        if packet is not None and len(packet) != 0:
+            print("procssing packet")
+            print(packet)
         if packet[:8] == MAGIC_NUM:
             packet = packet[8:]
         if len(packet) == 0:
@@ -879,6 +896,7 @@ class FlightComputer:
 
     def build_comm_response(self, ping_id: int) -> bytearray:
         """Build and return the uplink comm packet for the given ping_id."""
+        print("building comm response")
         if self._shutdown_flag:
             raise RuntimeError("Cannot build comm response after shutdown")
         packet = bytearray()
@@ -896,6 +914,10 @@ class FlightComputer:
                 self._command_sent = True
             else:
                 packet += bytearray([0x00])
+        padding_len = PACKET_LENGTH - len(packet)
+        if len:
+            packet += bytes(padding_len)
+        print(f"sending comm response {MAGIC_NUM + packet}")
         return MAGIC_NUM + packet
 
     def shutdown(self) -> None:

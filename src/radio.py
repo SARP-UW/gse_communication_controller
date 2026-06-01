@@ -51,6 +51,7 @@ RADIO_CMD_START_RX = 0x32        # Starts reception of data into RX FIFO
 RADIO_CMD_PACKET_INFO = 0x16     # Gets information about the received packet
 RADIO_CMD_READ_RX_FIFO = 0x77    # Reads data from RX FIFO
 RADIO_CMD_GET_INT_STATUS = 0x20  # Reads all interrup statuses
+RADIO_CMD_PART_INFO = 0x01
 
 # Misc radio register constants
 RADIO_CTS_READY_VALUE = 0xFF                                        # CTS (clear to send) register ready value
@@ -101,34 +102,42 @@ class Radio:
                     if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
                         with self._spi_bus_lock:
                             for packet in tx_packets:
+                                # received = self._spi_bus.xfer2(bytearray([RADIO_CMD_PART_INFO, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+                                # print(f"part info: {received}")
                                 
                                 # Clear TX FIFO
+                                # print(f"sending 1 {bytearray([RADIO_CMD_FIFO_INFO, RADIO_FIFO_INFO_RESET_TX_FIFO_ARG])}")
                                 self._spi_bus.xfer2(bytearray([RADIO_CMD_FIFO_INFO, RADIO_FIFO_INFO_RESET_TX_FIFO_ARG]))
                                 self._wait_cts()
                                 
                                 print("writing packet: ", packet)
                                 # Write packet to TX FIFO
+                                # print(RADIO_CMD_WRITE_TX_FIFO)
+                                # print(f"sending 2 {bytearray([RADIO_CMD_WRITE_TX_FIFO]) + packet}")
                                 self._spi_bus.xfer2(bytearray([RADIO_CMD_WRITE_TX_FIFO]) + packet)
                                 self._wait_cts()
                                 
                                 # Start packet transmission
+                                # print(f"sending 3 {bytearray([RADIO_CMD_START_TX, self._channel, RADIO_START_TX_CONDITION_ARG, len(packet), 0x00, 0x00])}")
                                 self._spi_bus.xfer2(bytearray([RADIO_CMD_START_TX, self._channel, RADIO_START_TX_CONDITION_ARG, len(packet), 0x00, 0x00]))
                                 self._wait_cts()
                                 print("cleared")
                             
                             # Enter RX mode again if we are in TX mode (packets were sent) (this allows us to receive packets again)
                             if len(tx_packets) > 0:
-                                self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS)
+                                self._spi_bus.xfer2(bytearray([RADIO_CMD_START_RX, self._channel]) + RADIO_ENTER_RX_NCH_ARGS + bytearray([0x00]))
                                 self._wait_cts()
     
     def _rx_interrupt(self) -> None:
         """
         Internal interrupt handler that receives packets (called when NIRQ goes low).
         """
+        print("in rx interrupt")
         if not self._shutdown_flag:
             with self._spi_bus_lock:
                 
                 # Request packet info from radio
+                print("receiving packet info")
                 self._spi_bus.xfer2(bytearray([RADIO_CMD_PACKET_INFO]))
                 
                 # Wait until packet info return values are ready (cts is high)
@@ -159,6 +168,7 @@ class Radio:
                     
                 packet_data = read_rx_fifo_data[2:(2 + packet_length)]
                 with self._rx_queue_lock:
+                    print(f"adding to rx queue {packet_data}")
                     self._rx_queue.append(packet_data)      
     
     def __init__(self, config_file: str, channel: int) -> None:

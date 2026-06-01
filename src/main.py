@@ -4,6 +4,7 @@ import os
 import signal
 import time
 import socket
+import spidev
 from src.controller import Controller
 from src.flight_computer import FlightComputer
 from src.website import Website
@@ -99,10 +100,28 @@ def main():
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
 
-        a = [bytearray([0x09])]
-        while True:
-            controller._radio.transmit(a)
-            print("Sending 0x09 over radio")
+        # a = bytearray([0b10101010])
+        # while True:
+        #     controller._rs485.write(a)
+        #     print(f"sent {a}")
+        #     time.sleep(1)
+        #     controller._radio.transmit(a)
+
+        # spi = spidev.SpiDev()
+        # spi.open(0, 0)
+        # spi.max_speed_hz = 500000
+
+        # # Data to send
+        # to_send = [0xDE, 0xAD, 0xBE, 0xEF]
+
+        # try:
+        #     while True:
+        #         # xfer2 keeps Chip Select active between blocks
+        #         received = spi.xfer2(to_send)
+        #         print(f"Sent: {to_send} | Received: {received}")
+        #         time.sleep(1)
+        # except KeyboardInterrupt:
+        #     spi.close()
 
         # print("Setting passthrough state in main")
         # horribly written test that iterates through each valve and flips through each state
@@ -122,19 +141,32 @@ def main():
         # controller.set_qdc_actuator_state(1, 1)
 
         # slightly better written test that iterates through qdc states
-        # states = ["locked", "released"]
+        # states = ["locked", "releasing", "released"]
         # actuator_id = 1
         # state_idx = 0
+        # time.sleep(1)
 
+        # controller.set_qdc_state(8, 1)
         # while True:
-        #     print(f"Setting actuator {actuator_id} state to {states[state_idx]}")
-        #     controller.set_qdc_actuator_state(actuator_id, states[state_idx])
-        #     time.sleep(2)
+        #     print(f"Setting actuator {2} state to {states[state_idx]}")
+        #     controller.set_qdc_actuator_state(2, states[state_idx])
+        #     time.sleep(5)
             
         #     state_idx += 1
         #     if state_idx == len(states):
         #         state_idx = 0
         #         actuator_id = 2 if actuator_id == 1 else 1
+
+        # time.sleep(5)
+        # controller.set_qdc_actuator_state(2, "locking")
+        # time.sleep(0.5) # 0.75 locking (from all the way in), 0.5 back released (doesn't go all the way back)
+        # controller.set_qdc_actuator_state(2, "locked")
+
+        # controller.set_qdc_actuator_state(2, "released")
+
+
+        # while True:
+        #     time.sleep(1)
 
         # extremely minimal rs485 test
         # Test write does not raise
@@ -142,18 +174,27 @@ def main():
         # print("PASS: write did not raise")
 
         # 0x55 rs485 test
-        # while True:
-        #     time.sleep(0.0001)
-        #     controller._rs485.write(bytearray([0x55]))
-        #     print("sent 0x55")
+        #while True:
+         #   time.sleep(0.01)
+         #   controller._rs485.write(bytearray([0x55]))
+          #  print("sent 0x55")
+            #print(f'Reading input packet: {controller._rs485.read()}')
+            #time.sleep(0.5)
 
-        # # Test read does not raise and returns bytearray
+        # Test read does not raise and returns bytearray
         # time.sleep(0.1)
-        # rx = controller._rs485.read()
+        # while True:
+        #     controller._rs485.write(bytearray([0x55]))   
+           
         # assert isinstance(rx, bytearray), f"Expected bytearray, got {type(rx)}"
         # print(f"PASS: read returned bytearray of length {len(rx)}")
 
         # print("RS485Bus tests passed!")
+
+        # while True:
+        #     rx = controller._rs485.read()
+        #     if rx:
+        #         print(f"Received RS485 packet: {rx}")
 
         
         # Comm loop: poll both links every 5 ms, respond to FC comm heartbeats
@@ -162,18 +203,19 @@ def main():
         while True:
             packets = controller.receive_packets()
             for packet in packets:
+                # print(packet)
                 ping_id = flight_computer.process_packet(packet)
                 if ping_id is not None:
                     # FC sent a comm packet — respond immediately
                     response = flight_computer.build_comm_response(ping_id)
+                    time.sleep(4)
                     controller.transmit_packets([response])
-            _tick += 1
-            if _tick % 20 == 0:
-                sensor_data = controller.passthrough_pressure_sensor_data
-                cc_sensor_logger.log_data([
-                    str(sensor_data[s['input']])
-                    for s in config['passthrough_pressure_sensors']
-                ])
+            packets = {}
+            sensor_data = controller.passthrough_pressure_sensor_data
+            cc_sensor_logger.log_data([
+                str(sensor_data[s['input']])
+                for s in config['passthrough_pressure_sensors']
+            ])
             time.sleep(_COMM_POLL_INTERVAL)
 
     except KeyboardInterrupt:

@@ -126,16 +126,21 @@ class Controller:
         packets.extend(self._radio.receive())
 
         # Drain RS485 — raw byte stream; parse 2-byte length-prefixed frames
-        raw = self._rs485.read()
-        if raw:
-            self._rs485_rx_buffer.extend(raw)
-        while len(self._rs485_rx_buffer) >= 2:
-            length = struct.unpack_from(">H", self._rs485_rx_buffer)[0]
-            if len(self._rs485_rx_buffer) < 2 + length:
-                break  # incomplete frame — wait for more bytes
-            packet = bytearray(self._rs485_rx_buffer[2:2 + length])
-            self._rs485_rx_buffer = self._rs485_rx_buffer[2 + length:]
-            packets.append(packet)
+        packets.append(self._rs485.read())
+        # raw = self._rs485.read()
+        # if raw:
+        #     print("Read from RS485")
+        #     self._rs485_rx_buffer.extend(raw)
+        # while len(self._rs485_rx_buffer) >= 2:
+        #     print("Parsing RS485 buffer")
+        #     length = struct.unpack_from(">H", self._rs485_rx_buffer)[0]
+        #     if len(self._rs485_rx_buffer) < 2 + length:
+        #         print("getting out")
+        #         break  # incomplete frame — wait for more bytes
+        #     packet = bytearray(self._rs485_rx_buffer[2:2 + length])
+        #     self._rs485_rx_buffer = self._rs485_rx_buffer[2 + length:]
+        #     print("appending {packet} to packets", packet=packet)
+        #     packets.append(packet)
 
         return packets
 
@@ -155,8 +160,9 @@ class Controller:
             self._radio.transmit(packets)
         else:  # rs485
             for packet in packets:
-                framed = struct.pack(">H", len(packet)) + packet
-                self._rs485.write(bytearray(framed))
+                print(f"Transmitting on RS485: {packet}")
+                self._rs485.write(bytearray(packet))
+                print("Send packet")
 
     # ------------------------------------------------------------------
     # Hardware — passthrough valves
