@@ -1,4 +1,6 @@
 Flask
-RPi.GPIO
+rpi-lgpio
 adafruit-blinka
 adafruit-circuitpython-ads1x15
+spidev
+flask-socketio
