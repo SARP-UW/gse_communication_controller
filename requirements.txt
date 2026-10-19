@@ -2,5 +2,7 @@ Flask
 rpi-lgpio
 adafruit-blinka
 adafruit-circuitpython-ads1x15
+grpcio==1.83.0
+protobuf==7.35.1
 spidev
 flask-socketio
