@@ -220,7 +220,7 @@ class FlightComputer:
         self._next_command_args: List[int] = []
         self._last_command_id: int = None
         self._messages: List = []
-        self._command_sent: bool = False
+        self._command_sent: bool = True
         self._command_lock: threading.Lock = threading.Lock()
 
         self._pending_command: Optional[dict] = None
@@ -756,9 +756,13 @@ class FlightComputer:
             raise RuntimeError("Cannot set mode after shutdown")
         
         if not self._command_sent:
-            return ValueError(f"Previous command not sent yet. Prev command id {self._command_id + 1} tag: {self._next_command_tag}")
-        if self._command_status["status_id"] != 0x02:
-            return ValueError(f"Previous command not completed yet. Prev command id {self._command_id + 1} status: {self._command_status_id_to_name}")
+            raise ValueError(f"Previous command not sent yet. Tag: {self._next_command_tag}")
+        # 0x00 waiting / 0x01 in progress mean the FC is still working on our last command
+        if self._command_id is not None and (
+            self._command_status["cmd_tag"] != self._command_id
+            or self._command_status["status_id"] in (0x00, 0x01)
+        ):
+            raise ValueError(f"Previous command not completed yet. Command id {self._command_id} status: {self._command_status['status_name']}")
         
         self._command_lock.acquire()
         self._next_command_type = command_type
@@ -894,6 +898,9 @@ class FlightComputer:
                 packet += bytes([self._next_command_tag])
                 self._append_next_command_args(packet)
                 self._command_sent = True
+                self._next_command_type = None
+                self._next_command_tag = None
+                self._next_command_args = []
             else:
                 packet += bytearray([0x00])
         return MAGIC_NUM + packet

@@ -11,7 +11,7 @@ import re
 # https://www.silabs.com/documents/public/data-sheets/Si4468-7.pdf
 
 # Hardware dependent libraries and initialization
-if not settings.MOCK_MODE or not settings.RADIO_MOCK_MODE:
+if not settings.MOCK_MODE and not settings.RADIO_MOCK_MODE:
     import board
     from digitalio import DigitalInOut, Direction
     from spidev import SpiDev 
