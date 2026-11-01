@@ -9,7 +9,7 @@ if not settings.MOCK_MODE:
     from digitalio import DigitalInOut, Direction
     
     # Pins for RS485 bus transciever
-    RS485_PORT = '/dev/serial0' # Transciever serial (UART) port
+    RS485_PORT = '/dev/ttyAMA0' # Transciever serial (UART) port
     RS485_DE_PIN = board.D18    # Transciever driver enable pin
     RS485_RE_PIN = board.D22    # Transciever receiver enable pin
 
@@ -53,6 +53,7 @@ class RS485Bus:
                         with self._tx_uart_lock:
                             self._de_io.value = True
                             self._serial.write(queue_data)
+                            self._serial.flush()
                             self._de_io.value = False
                 
                 # Simulate "sending" data by clearing TX queue
