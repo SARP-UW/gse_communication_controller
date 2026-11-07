@@ -4,10 +4,14 @@ import os
 import signal
 import time
 import socket
+from collections import deque
 from src.controller import Controller
 from src.flight_computer import FlightComputer
 from src.website import Website
 from src.logger import Logger
+from src.spoke import Spoke
+from src.radio import RADIO_MAX_PACKET_SIZE
+
 
 def _get_ip_str() -> str:
     """
@@ -70,6 +74,7 @@ def main():
     controller = None
     flight_computer = None
     website = None
+    spoke = None
 
     try:
         config = load_config(args.config)
@@ -95,6 +100,83 @@ def main():
             flight_computer=flight_computer,
             controller=controller
         )
+
+        received_for_hub = deque(maxlen=1000)
+
+        def receive_packets(args):
+            packets = []
+            while received_for_hub:
+                packets.append(received_for_hub.popleft().hex())
+            return {'packets': packets, 'count': len(packets)}
+
+        to_transmit = deque(maxlen=100)
+
+        def transmit_packets(args):
+            if 'packets' not in args:
+                raise KeyError("missing arg 'packets'")
+            packets = []
+            for i, hex_str in enumerate(args['packets'].split(',')):
+                packet = bytearray.fromhex(hex_str.strip()) 
+                if not 1 <= len(packet) <= RADIO_MAX_PACKET_SIZE:
+                    raise ValueError(f"packet {i} is {len(packet)} bytes; must be 1-{RADIO_MAX_PACKET_SIZE}")
+                packets.append(packet)
+            to_transmit.extend(packets)
+            return {'queued': len(packets), 'waiting': len(to_transmit)}
+        
+        def get_comm_link(args):
+            return {'active_link': controller.comm_link_type}
+        
+        def set_comm_link(args):
+            controller.comm_link_type = args['link']
+
+        def passthrough_valve_info(args):
+            return {"valves" : controller.passthrough_valve_info}
+        
+        def passthrough_valve_states(args):
+            return {"valve_states" : {str(k) : v for k,v in controller.passthrough_valve_states.items()}}
+        
+        def set_passthrough_valve_state(args):
+            valve_id = int(args['id'])
+            override = args['override'].strip().lower()
+            if override not in ('true', 'false'):
+                raise ValueError('override must be true or false')
+            controller.set_passthrough_valve_state(valve_id, override == 'true')
+            return {'id' : valve_id, 'state' : controller.passthrough_valve_states[valve_id]}
+
+        def passthrough_pressure_sensor_info(args):
+            return  {"sensor_info" : controller.passthrough_pressure_sensor_info}
+        
+        def passthrough_pressure_sensor_data(args):
+            return {"sensor_data" : {str(k): v for k,v in controller.passthrough_pressure_sensor_data.items()}}
+
+        def qdc_actuator_info(args):
+            return {"qdc_actuator_info" : controller.qdc_actuator_info}
+        
+        def qdc_actuator_states(args):
+            return {"qdc_actuator_states" : {str(k) : v for k,v in controller.qdc_actuator_states.items()}}
+        
+        def set_qdc_actuator_state(args):
+            actuator_id = int(args['id'])
+            state = args['state'].strip().lower()
+            controller.set_qdc_actuator_state(actuator_id, state)
+            return {'id' : actuator_id, 'state' : state}
+
+        spoke = Spoke('cc', {
+            'receive_packets': receive_packets,
+            'transmit_packets': transmit_packets,
+            'get_comm_link' : get_comm_link,
+            'set_comm_link' : set_comm_link,
+            "passthrough_valve_info" : passthrough_valve_info,
+            "passthrough_valve_states" : passthrough_valve_states,
+            "set_passthrough_valve_state" : set_passthrough_valve_state,
+            "passthrough_pressure_sensor_info" : passthrough_pressure_sensor_info,
+            "passthrough_pressure_sensor_data" : passthrough_pressure_sensor_data,
+            "qdc_actuator_info" : qdc_actuator_info,
+            "qdc_actuator_states" : qdc_actuator_states,
+            "set_qdc_actuator_state" : set_qdc_actuator_state,
+        })
+
+        spoke.start()
 
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
@@ -156,12 +238,17 @@ def main():
         _tick = 0
         while True:
             packets = controller.receive_packets()
+            received_for_hub.extend(packets)  # share with the spoke's receive_packets handler
             for packet in packets:
                 ping_id = flight_computer.process_packet(packet)
                 if ping_id is not None:
                     # FC sent a comm packet — respond immediately
                     response = flight_computer.build_comm_response(ping_id)
-                    controller.transmit_packets([response])
+                    # Send any packets queued by the spoke's transmit_packets handler after the response
+                    hub_packets = []
+                    while to_transmit:
+                        hub_packets.append(to_transmit.popleft())
+                    controller.transmit_packets([response] + hub_packets)
             _tick += 1
             if _tick % 20 == 0:
                 sensor_data = controller.passthrough_pressure_sensor_data
@@ -173,6 +260,8 @@ def main():
 
     except KeyboardInterrupt:
         print("\nSYSTEM STATUS: Stopping system...")
+        if spoke:
+            spoke.stop()
         if website:
             website.shutdown()
         if flight_computer:

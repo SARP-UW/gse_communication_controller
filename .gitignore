@@ -212,3 +212,4 @@ docs
 
 logs/*.csv
 logs/*.txt
+.DS_Store
