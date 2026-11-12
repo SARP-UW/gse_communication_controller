@@ -25,7 +25,7 @@ settings.MOCK_MODE = True
 settings.RADIO_MOCK_MODE = True
 
 from src.controller import Controller
-from src.flight_computer import FlightComputer, MAGIC_NUM
+from src.flight_computer import FlightComputer, MAGIC_NUM, _FC_BYTEORDER as BYTEORDER
 from src.spoke import Spoke
 from src.spoke_handlers import build_handlers
 
@@ -229,15 +229,15 @@ class SpokeHandlerTests(unittest.TestCase):
     def test_fc_state_getters_after_packets(self):
         # ADC packet index 1: sensors [1, 2] (from config), 3-byte signed little-endian values
         self.fc.process_packet(MAGIC_NUM + bytearray([0x03, 0x01])
-                               + (1234).to_bytes(3, 'little', signed=True)
-                               + (-56).to_bytes(3, 'little', signed=True))
+                               + (1234).to_bytes(3, BYTEORDER, signed=True)
+                               + (-56).to_bytes(3, BYTEORDER, signed=True))
         # State packet: valve 1 open, valve 2 closed; servos 100, 200, 300
         self.fc.process_packet(bytearray([0x04, 0b01])
-                               + (100).to_bytes(2, 'little') + (200).to_bytes(2, 'little')
-                               + (300).to_bytes(2, 'little'))
+                               + (100).to_bytes(2, BYTEORDER) + (200).to_bytes(2, BYTEORDER)
+                               + (300).to_bytes(2, BYTEORDER))
         # Comm packet: ping 7, mode 1, uptime 5000 ms, cmd id 3, status 0x02, 0 messages
-        self.fc.process_packet(bytearray([0x05]) + (7).to_bytes(2, 'little') + bytes([1])
-                               + (5000).to_bytes(4, 'little') + (3).to_bytes(2, 'little')
+        self.fc.process_packet(bytearray([0x05]) + (7).to_bytes(2, BYTEORDER) + bytes([1])
+                               + (5000).to_bytes(4, BYTEORDER) + (3).to_bytes(2, BYTEORDER)
                                + bytes([0x02, 0x00]))
 
         adc = self.assertCompleted('adc_sensor_data')['adc_sensor_data']
@@ -295,13 +295,17 @@ class SpokeHandlerTests(unittest.TestCase):
                  mock.patch.object(self.fc, '_set_next_command'):
                 self.assertFailed(name, **args)
 
-    @unittest.expectedFailure  # pending fix in flight_computer.py: _set_next_command rejects every command
-    def test_fc_command_is_actually_queued(self):
-        # Uses the REAL _set_next_command. Today the first command crashes building its error
-        # message (self._command_id is None), and later ones are dropped (return ValueError, not raise).
+    def test_fc_command_is_actually_queued_and_sent(self):
+        # Uses the REAL _set_next_command and build_comm_response, like the main loop does.
         self.assertCompleted('set_valve', id='1', state='1')
         self.assertEqual((self.fc._next_command_type, self.fc._next_command_tag, self.fc._next_command_args),
                          (0x00, 0x00, [1, 1]))
+
+        uplink = self.fc.build_comm_response(ping_id=1)
+        # magic(8) + type(1) + ping(2) + time(4) + valid(1) + cmd id(2) + type(1) + tag(1) + valve id(1) + state(1)
+        self.assertEqual(uplink[15], 0x01, "command valid byte not set")
+        self.assertEqual(list(uplink[18:22]), [0x00, 0x00, 1, 1])
+        self.assertIsNone(self.fc._next_command_type, "command should be cleared after sending")
 
 
 def _to_py(value):

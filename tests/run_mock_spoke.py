@@ -20,7 +20,7 @@ settings.MOCK_MODE = True
 settings.RADIO_MOCK_MODE = True
 
 from src.controller import Controller
-from src.flight_computer import FlightComputer
+from src.flight_computer import FlightComputer, _FC_BYTEORDER as BYTEORDER
 from src.spoke import Spoke
 from src.spoke_handlers import build_handlers
 
@@ -31,17 +31,17 @@ CONFIG_PATH = os.path.join(REPO_ROOT, 'config', 'default', 'config.json')
 def fake_packets(tick: int):
     """One round of FC downlink packets with values that change each tick."""
     adc = (bytearray([0x03, 0x01])
-           + (tick % 1000).to_bytes(3, 'little', signed=True)
-           + (-(tick % 500)).to_bytes(3, 'little', signed=True))
+           + (tick % 1000).to_bytes(3, BYTEORDER, signed=True)
+           + (-(tick % 500)).to_bytes(3, BYTEORDER, signed=True))
     state = (bytearray([0x04, tick // 10 % 4])  # valve bits cycle 00, 01, 10, 11
-             + (tick % 1000).to_bytes(2, 'little')
-             + (500).to_bytes(2, 'little')
-             + (1000 - tick % 1000).to_bytes(2, 'little'))
+             + (tick % 1000).to_bytes(2, BYTEORDER)
+             + (500).to_bytes(2, BYTEORDER)
+             + (1000 - tick % 1000).to_bytes(2, BYTEORDER))
     comm = (bytearray([0x05])
-            + (tick % 65536).to_bytes(2, 'little')  # ping id
+            + (tick % 65536).to_bytes(2, BYTEORDER)  # ping id
             + bytes([0])                            # mode
-            + (tick * 100).to_bytes(4, 'little')    # ms since start
-            + (0).to_bytes(2, 'little')             # last command id
+            + (tick * 100).to_bytes(4, BYTEORDER)    # ms since start
+            + (0).to_bytes(2, BYTEORDER)             # last command id
             + bytes([0x00, 0x00]))                  # command status, message count
     return [adc, state, comm]
 
@@ -71,8 +71,11 @@ def main():
         while True:
             tick += 1
             for packet in fake_packets(tick):
-                flight_computer.process_packet(packet)
                 received_for_hub.append(packet)  # so receive_packets has something to return
+                ping_id = flight_computer.process_packet(packet)
+                if ping_id is not None:
+                    # Like main.py: answer the comm packet, which sends any queued FC command
+                    flight_computer.build_comm_response(ping_id)
             to_transmit.clear()  # stands in for the main loop sending queued packets
             time.sleep(0.1)
     except KeyboardInterrupt:

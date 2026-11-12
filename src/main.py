@@ -30,6 +30,18 @@ def _get_ip_str() -> str:
         pass
     return "<device ip>"
 
+def print_comm_packet(packet: bytearray) -> None:
+    """Prints each field of an FC comm packet (type 0x05) by name."""
+    print("  magic:           ", packet[0:8].hex(" "))
+    print("  packet_type:     ", hex(packet[8]))
+    print("  ping_id:         ", int.from_bytes(packet[9:11], "big"))
+    print("  system_mode:     ", packet[11])
+    print("  processor_time:  ", int.from_bytes(packet[12:16], "big"), "ms")
+    print("  last_command_id: ", int.from_bytes(packet[16:18], "big"))
+    print("  last_cmd_status: ", hex(packet[18]))
+    print("  message_count:   ", packet[19])
+    print("  message_tags:    ", list(packet[20:20 + packet[19]]))
+
 def main():
     """
     Main entry point for the Comm Controller program.
@@ -111,74 +123,35 @@ def main():
         print("SYSTEM STATUS: System running!")
         print(f"SYSTEM STATUS: Website at: http://{_get_ip_str()}:{config['website']['host']}")
 
-        # print("Setting passthrough state in main")
-        # horribly written test that iterates through each valve and flips through each state
-        # state = True
-        # idx = 1
-        # while True:
-        #     print(f"Setting valve {idx} state to {state}")
-        #     for i in range(3):
-        #         state = not state
-        #         controller.set_passthrough_valve_state(idx, state)
-        #         time.sleep(2)
-        #     idx += 1
-        #     if idx == 5:
-        #         idx = 1
-
-        # print(f"Valve States: {controller.passthrough_valve_states}")
-        # controller.set_qdc_actuator_state(1, 1)
-
-        # slightly better written test that iterates through qdc states
-        # states = ["locked", "released"]
-        # actuator_id = 1
-        # state_idx = 0
-
-        # while True:
-        #     print(f"Setting actuator {actuator_id} state to {states[state_idx]}")
-        #     controller.set_qdc_actuator_state(actuator_id, states[state_idx])
-        #     time.sleep(2)
-            
-        #     state_idx += 1
-        #     if state_idx == len(states):
-        #         state_idx = 0
-        #         actuator_id = 2 if actuator_id == 1 else 1
-
-        # extremely minimal rs485 test
-        # Test write does not raise
-        # controller._rs485.write(bytearray([0x01, 0x02, 0x03]))
-        # print("PASS: write did not raise")
-
-        # 0x55 rs485 test
-        # while True:
-        #     time.sleep(0.0001)
-        #     controller._rs485.write(bytearray([0x55]))
-        #     print("sent 0x55")
-
-        # # Test read does not raise and returns bytearray
-        # time.sleep(0.1)
-        # rx = controller._rs485.read()
-        # assert isinstance(rx, bytearray), f"Expected bytearray, got {type(rx)}"
-        # print(f"PASS: read returned bytearray of length {len(rx)}")
-
-        # print("RS485Bus tests passed!")
-
-        
         # Comm loop: poll both links every 5 ms, respond to FC comm heartbeats
-        _COMM_POLL_INTERVAL = 0.005  # 5 ms — well within the 10 ms response window
+        _COMM_POLL_INTERVAL = 0.002 # 0.005  # 5 ms — well within the 10 ms response window
         _tick = 0
         while True:
             packets = controller.receive_packets()
             received_for_hub.extend(packets)  # share with the spoke's receive_packets handler
+
             for packet in packets:
+                if packet[8] == 0x05:
+                    print_comm_packet(packet)
+
+                print("RX:", packet.hex(" "))
                 ping_id = flight_computer.process_packet(packet)
                 if ping_id is not None:
                     # FC sent a comm packet — respond immediately
                     response = flight_computer.build_comm_response(ping_id)
+                    print("TX:", response.hex(" "))
+                    print(f'ping id recieved -> {ping_id}')
                     # Send any packets queued by the spoke's transmit_packets handler after the response
                     hub_packets = []
                     while to_transmit:
                         hub_packets.append(to_transmit.popleft())
                     controller.transmit_packets([response] + hub_packets)
+                    print(f'tx sent')
+
+            # test command to toggle valve every 500 ticks (2.5 seconds at 5 ms per tick)
+            # if _tick % 500 == 0:
+            #    flight_computer.set_valve(0, (_tick // 500) % 2)
+
             _tick += 1
             if _tick % 20 == 0:
                 sensor_data = controller.passthrough_pressure_sensor_data

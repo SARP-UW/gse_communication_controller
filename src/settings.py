@@ -16,7 +16,7 @@ WEBSITE_HEARTBEAT_TIMEOUT: float = 3.0
 MOCK_MODE: bool = False
 
 # If true the system will simulate radio hardware
-RADIO_MOCK_MODE: bool = False
+RADIO_MOCK_MODE: bool = True
 
 # debug
 DEBUG: bool = False

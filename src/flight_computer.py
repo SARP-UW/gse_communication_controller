@@ -179,8 +179,7 @@ import time as _time
                 #0x06
 
 MAGIC_NUM = bytearray([0x4A, 0x42, 0x4D, 0x45, 0x4A, 0x4D, 0x53, 0x52])
-# TODO: confirm byte order with FC team
-_FC_BYTEORDER: Literal['little', 'big'] = 'little'
+_FC_BYTEORDER: Literal['little', 'big'] = 'big'
 
 class FlightComputer:
     
@@ -214,13 +213,13 @@ class FlightComputer:
             "status_description": "Command waiting",
         }
         self._last_ping_id: int = None
-        self._command_id: int = None
+        self._command_id: int = 0
         self._next_command_type: bytes = None
         self._next_command_tag: bytes = None
         self._next_command_args: List[int] = []
         self._last_command_id: int = None
         self._messages: List = []
-        self._command_sent: bool = False
+        self._command_sent: bool = True
         self._command_lock: threading.Lock = threading.Lock()
 
         self._pending_command: Optional[dict] = None
@@ -757,9 +756,15 @@ class FlightComputer:
         
         if not self._command_sent:
             return ValueError(f"Previous command not sent yet. Prev command id {self._command_id + 1} tag: {self._next_command_tag}")
-        if self._command_status["status_id"] != 0x02:
-            return ValueError(f"Previous command not completed yet. Prev command id {self._command_id + 1} status: {self._command_status_id_to_name}")
+        command_in_progress = self._command_status["status_id"] == 0x01
+
+        if command_in_progress:
+            raise ValueError("Previous command is still in progress on the FC")
+
+        #if self._command_status["status_id"] != 0x02:
+        #    return ValueError(f"Previous command not completed yet. Prev command id {self._command_id + 1} status: {self._command_status_id_to_name}")
         
+        # difference between wrapping this with -> with self._command_lock: instead?
         self._command_lock.acquire()
         self._next_command_type = command_type
         self._next_command_tag = command_tag
@@ -893,6 +898,10 @@ class FlightComputer:
                 packet += bytes([self._next_command_type])
                 packet += bytes([self._next_command_tag])
                 self._append_next_command_args(packet)
+
+                # clear command so it is only sent once
+                self._next_command_type = None
+                self._next_command_tag = None
                 self._command_sent = True
             else:
                 packet += bytearray([0x00])

@@ -1,5 +1,6 @@
 import os
-import struct
+# import struct
+from src.flight_computer import MAGIC_NUM 
 from typing import List, Dict
 
 from src.radio import Radio
@@ -125,20 +126,66 @@ class Controller:
         # Drain radio — delivers complete packets
         packets.extend(self._radio.receive())
 
-        # Drain RS485 — raw byte stream; parse 2-byte length-prefixed frames
-        raw = self._rs485.read()
-        if raw:
-            self._rs485_rx_buffer.extend(raw)
-        while len(self._rs485_rx_buffer) >= 2:
-            length = struct.unpack_from(">H", self._rs485_rx_buffer)[0]
-            if len(self._rs485_rx_buffer) < 2 + length:
-                break  # incomplete frame — wait for more bytes
-            packet = bytearray(self._rs485_rx_buffer[2:2 + length])
-            self._rs485_rx_buffer = self._rs485_rx_buffer[2 + length:]
-            packets.append(packet)
+        raw_rs485 = self._rs485.read()
+        if raw_rs485:
+            print(f'received raw from rs485: {raw_rs485}')
+        # if raw:
+        #   self._rs485_rx_buffer.extend(raw)
+        #    print(f'recieved raw {raw}')
+        #while len(self._rs485_rx_buffer) >= 2:
+        #    length = struct.unpack_from(">H", self._rs485_rx_buffer)[0]
+        #    if len(self._rs485_rx_buffer) < 2 + length:
+        #        break  # incomplete frame — wait for more bytes
+        #    packet = bytearray(self._rs485_rx_buffer[2:2 + length])
+        #    self._rs485_rx_buffer = self._rs485_rx_buffer[2 + length:]
+        #    packets.append(packet)
+        packets.extend(self._split_rs485_packets(raw_rs485))
 
         return packets
 
+    def _split_rs485_packets(self, new_bytes: bytearray) -> List[bytearray]:
+        """
+        Adds new bytes to the RS485 buffer and pulls out every complete packet.
+
+        Every packet starts with MAGIC_NUM. A packet is complete when either:
+          - another MAGIC_NUM comes after it, or
+          - no new bytes arrived this poll (the FC finished sending and is waiting for us).
+        """
+        self._rs485_rx_buffer.extend(new_bytes)
+        self._discard_bytes_before_magic()
+
+        packets: List[bytearray] = []
+
+        # Cut off packets that have another MAGIC_NUM after them
+        while True:
+            next_magic = self._rs485_rx_buffer.find(MAGIC_NUM, len(MAGIC_NUM))
+            if next_magic == -1:
+                break
+            packets.append(self._rs485_rx_buffer[:next_magic])
+            self._rs485_rx_buffer = self._rs485_rx_buffer[next_magic:]
+
+        # The last packet has nothing after it, so wait until the line goes quiet
+        line_is_quiet = len(new_bytes) == 0
+        has_leftover_packet = self._rs485_rx_buffer.startswith(MAGIC_NUM)
+        if line_is_quiet and has_leftover_packet:
+            packets.append(self._rs485_rx_buffer)
+            self._rs485_rx_buffer = bytearray()
+
+        return packets
+
+    def _discard_bytes_before_magic(self) -> None:
+        """Throws away junk bytes in the RS485 buffer before the first MAGIC_NUM."""
+        magic_start = self._rs485_rx_buffer.find(MAGIC_NUM)
+
+        if magic_start == -1:
+            # No MAGIC_NUM yet. Keep the last 7 bytes, since they could be the
+            # beginning of a MAGIC_NUM whose remaining bytes haven't arrived.
+            bytes_to_keep = len(MAGIC_NUM) - 1
+            self._rs485_rx_buffer = self._rs485_rx_buffer[-bytes_to_keep:]
+        else:
+            self._rs485_rx_buffer = self._rs485_rx_buffer[magic_start:]
+
+    # TODO: update doc strings here and for receive packet to reflect changes
     def transmit_packets(self, packets: List[bytearray]) -> None:
         """
         Transmits packets on the active communication link.
@@ -155,8 +202,8 @@ class Controller:
             self._radio.transmit(packets)
         else:  # rs485
             for packet in packets:
-                framed = struct.pack(">H", len(packet)) + packet
-                self._rs485.write(bytearray(framed))
+                # framed = struct.pack(">H", len(packet)) + packet -> dead but keeping in case
+                self._rs485.write(packet)
 
     # ------------------------------------------------------------------
     # Hardware — passthrough valves
