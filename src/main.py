@@ -10,7 +10,7 @@ from src.flight_computer import FlightComputer
 from src.website import Website
 from src.logger import Logger
 from src.spoke import Spoke
-from src.radio import RADIO_MAX_PACKET_SIZE
+from src.spoke_handlers import build_handlers
 
 
 def _get_ip_str() -> str:
@@ -101,80 +101,10 @@ def main():
             controller=controller
         )
 
-        received_for_hub = deque(maxlen=1000)
+        received_for_hub = deque(maxlen=1000)  # packets from the main loop, drained by receive_packets
+        to_transmit = deque(maxlen=100)  # packets from transmit_packets, sent by the main loop
 
-        def receive_packets(args):
-            packets = []
-            while received_for_hub:
-                packets.append(received_for_hub.popleft().hex())
-            return {'packets': packets, 'count': len(packets)}
-
-        to_transmit = deque(maxlen=100)
-
-        def transmit_packets(args):
-            if 'packets' not in args:
-                raise KeyError("missing arg 'packets'")
-            packets = []
-            for i, hex_str in enumerate(args['packets'].split(',')):
-                packet = bytearray.fromhex(hex_str.strip()) 
-                if not 1 <= len(packet) <= RADIO_MAX_PACKET_SIZE:
-                    raise ValueError(f"packet {i} is {len(packet)} bytes; must be 1-{RADIO_MAX_PACKET_SIZE}")
-                packets.append(packet)
-            to_transmit.extend(packets)
-            return {'queued': len(packets), 'waiting': len(to_transmit)}
-        
-        def get_comm_link(args):
-            return {'active_link': controller.comm_link_type}
-        
-        def set_comm_link(args):
-            controller.comm_link_type = args['link']
-
-        def passthrough_valve_info(args):
-            return {"valves" : controller.passthrough_valve_info}
-        
-        def passthrough_valve_states(args):
-            return {"valve_states" : {str(k) : v for k,v in controller.passthrough_valve_states.items()}}
-        
-        def set_passthrough_valve_state(args):
-            valve_id = int(args['id'])
-            override = args['override'].strip().lower()
-            if override not in ('true', 'false'):
-                raise ValueError('override must be true or false')
-            controller.set_passthrough_valve_state(valve_id, override == 'true')
-            return {'id' : valve_id, 'state' : controller.passthrough_valve_states[valve_id]}
-
-        def passthrough_pressure_sensor_info(args):
-            return  {"sensor_info" : controller.passthrough_pressure_sensor_info}
-        
-        def passthrough_pressure_sensor_data(args):
-            return {"sensor_data" : {str(k): v for k,v in controller.passthrough_pressure_sensor_data.items()}}
-
-        def qdc_actuator_info(args):
-            return {"qdc_actuator_info" : controller.qdc_actuator_info}
-        
-        def qdc_actuator_states(args):
-            return {"qdc_actuator_states" : {str(k) : v for k,v in controller.qdc_actuator_states.items()}}
-        
-        def set_qdc_actuator_state(args):
-            actuator_id = int(args['id'])
-            state = args['state'].strip().lower()
-            controller.set_qdc_actuator_state(actuator_id, state)
-            return {'id' : actuator_id, 'state' : state}
-
-        spoke = Spoke('cc', {
-            'receive_packets': receive_packets,
-            'transmit_packets': transmit_packets,
-            'get_comm_link' : get_comm_link,
-            'set_comm_link' : set_comm_link,
-            "passthrough_valve_info" : passthrough_valve_info,
-            "passthrough_valve_states" : passthrough_valve_states,
-            "set_passthrough_valve_state" : set_passthrough_valve_state,
-            "passthrough_pressure_sensor_info" : passthrough_pressure_sensor_info,
-            "passthrough_pressure_sensor_data" : passthrough_pressure_sensor_data,
-            "qdc_actuator_info" : qdc_actuator_info,
-            "qdc_actuator_states" : qdc_actuator_states,
-            "set_qdc_actuator_state" : set_qdc_actuator_state,
-        })
+        spoke = Spoke('cc', build_handlers(controller, flight_computer, received_for_hub, to_transmit))
 
         spoke.start()
 
