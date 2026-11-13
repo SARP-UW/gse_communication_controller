@@ -906,6 +906,26 @@ class FlightComputer:
             else:
                 packet += bytearray([0x00])
         return MAGIC_NUM + packet
+    
+    @staticmethod
+    def _jsonify_keys(d):
+        """Convert dict keys to strings so it's JSON-safe."""
+        if not isinstance(d, dict):
+            return d
+        return {str(k): v for k, v in d.items()}
+    
+    def read_telemetry_snapshot(self) -> dict:
+        """One clean snapshot of everything useful."""
+        return {
+            "time_since_start_ms": self.time_since_start,
+            "mode": self.mode,
+            "sleep": self.sleep,
+            "is_ready": self.is_ready,
+            "adc": self._jsonify_keys(self.adc_sensor_data),
+            "valves": self._jsonify_keys(self.valve_states),
+            "servos": self._jsonify_keys(self.servo_states),
+            "command_status": self.command_status,
+        }
 
     def shutdown(self) -> None:
         """

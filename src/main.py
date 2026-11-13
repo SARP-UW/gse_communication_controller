@@ -154,6 +154,10 @@ def main():
 
             _tick += 1
             if _tick % 20 == 0:
+                spoke.publish({
+                    "fc": flight_computer.read_telemetry_snapshot(),
+                    "cc": controller.read_telemetry_snapshot()
+                })
                 sensor_data = controller.passthrough_pressure_sensor_data
                 cc_sensor_logger.log_data([
                     str(sensor_data[s['input']])

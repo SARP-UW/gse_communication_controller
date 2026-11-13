@@ -322,3 +322,22 @@ class Controller:
             self._radio.shutdown()
         if hasattr(self, '_rs485') and not self._rs485.is_shutdown:
             self._rs485.shutdown()
+
+    # ------------------------------------------------------------------
+    # Telemetry
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _jsonify_keys(d):
+        """Convert dict keys to strings so it's JSON-safe."""
+        if not isinstance(d, dict):
+            return d
+        return {str(k): v for k, v in d.items()}
+
+    def read_telemetry_snapshot(self):
+        """One clean snapshot of everything useful."""
+        return {
+            "sensors": self._jsonify_keys(self.passthrough_pressure_sensor_data),
+            "valves": self._jsonify_keys(self.passthrough_valve_states),
+            "qdc": self._jsonify_keys(self.qdc_actuator_states),
+        }

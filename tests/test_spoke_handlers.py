@@ -39,6 +39,7 @@ CONFIG_PATH = os.path.join(REPO_ROOT, 'config', 'default', 'config.json')
 NOT_EXPOSED = {
     'shutdown', 'from_config',                 # lifecycle, owned by main()
     'process_packet', 'build_comm_response',   # main-loop internals (100 ms comm cycle)
+    'read_telemetry_snapshot'
 }
 
 # Public member -> the command(s) that expose it
