@@ -149,7 +149,33 @@ class Website:
         return {str(k): v for k, v in d.items()}
 
     def read_telemetry_snapshot(self):
+        """One clean snapshot of everything useful."""
+        if self.flight_computer is None:
+            raise RuntimeError("No flight_computer passed into Website(...)")
+        if self.controller is None:
+            raise RuntimeError("No controller passed into Website(...)")
+        
+        fc = self.flight_computer
+        cc = self.controller
+
+        fc_snapshot = {
+            "time_since_start_ms": fc.time_since_start,
+            "mode": fc.mode,
+            "sleep": fc.sleep,
+            "is_ready": fc.is_ready,
+            "adc": self._jsonify_keys(fc.adc_sensor_data),
+            "valves": self._jsonify_keys(fc.valve_states),
+            "servos": self._jsonify_keys(fc.servo_states),
+            "command_status": fc.command_status,
+        }
+        cc_snapshot = {
+            "sensors": self._jsonify_keys(cc.passthrough_pressure_sensor_data),
+            "valves": self._jsonify_keys(cc.passthrough_valve_states),
+            "qdc": self._jsonify_keys(cc.qdc_actuator_states),
+        }
         return {
+            "fc": fc_snapshot,
+            "cc": cc_snapshot,
             "fc": self.flight_computer.read_telemetry_snapshot(),
             "cc": self.controller.read_telemetry_snapshot()
         }
