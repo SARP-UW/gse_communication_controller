@@ -110,7 +110,7 @@ import time as _time
         # The comm packet is expected every 100 ms, with 10 ms given for a response.         
         
         # Command status values
-            # 0x00 Command waiting
+            # 0x0B Command waiting
             # 0x01 Command in progress
             # 0x02 Command completed successfully
             # 0x03 Command failed due to invalid tag
@@ -135,13 +135,13 @@ import time as _time
         # <command arguments (pre-determined variable length)> (optional, only if command valid = 1)
 
         # Command types
-            # 0x00 Static command
+            # 0x02 Static command
             # 0x01 Custom command
             
         # Static command tags and args
             
             # Change valve state
-                # 0x00
+                # 0x07
                 # <valve id (1 byte)>
                 # <new state (1 byte)> (0 = closed, 1 = open)
                 
@@ -208,7 +208,7 @@ class FlightComputer:
         self._is_ready: bool = True
         self._command_status: Dict = {
             "cmd_tag": None,
-            "status_id": 0x00,
+            "status_id": 0x0B,
             "status_name": "waiting",
             "status_description": "Command waiting",
         }
@@ -697,7 +697,7 @@ class FlightComputer:
         Converts from command status id (bytes) to command status name
         """
         match id:
-            case 0x00:
+            case 0x0B:
                 return "waiting"
             case 0x01:
                 return "in progress"
@@ -720,12 +720,12 @@ class FlightComputer:
             case 0x0A:
                 return "awaiting confirmation"
             case _:
-                raise ValueError(f"Invalid status id: {id} > 0x0A")
+                raise ValueError(f"Invalid status id: {id} > 0x0B")
 
     def _append_next_command_args(self, packet: bytearray):
-        if self._next_command_type == 0x00:
+        if self._next_command_type == 0x02:
             match self._next_command_tag:
-                case 0x00:
+                case 0x07:
                     if len(self._next_command_args) != 2:
                         return ValueError(f"Expecting 2 arguments for {self._next_command_tag} but received {len(self._next_command_args)}")
                     packet += self._next_command_args[0].to_bytes(1, _FC_BYTEORDER)
@@ -781,7 +781,7 @@ class FlightComputer:
             state (int): The new state of the valve (0 = closed, 1 = open).
         """
         args = [valve_id, state]
-        self._set_next_command(0x00, 0x00, args)
+        self._set_next_command(0x02, 0x07, args)
         
     def pulse_valve(self, valve_id: int, duration_ms: int) -> None:
         """
@@ -792,7 +792,7 @@ class FlightComputer:
             duration_ms (int): The duration to pulse the valve in milliseconds.
         """
         args = [valve_id, duration_ms]
-        self._set_next_command(0x00, 0x01, args)
+        self._set_next_command(0x02, 0x01, args)
         
     def set_servo(self, servo_id: int, value: float) -> None:
         """
@@ -803,7 +803,7 @@ class FlightComputer:
             value (float): The new position of the servo (speed, degrees, or percent).
         """
         args = [servo_id, value]
-        self._set_next_command(0x00, 0x02, args)
+        self._set_next_command(0x02, 0x02, args)
     
     def pulse_servo(self, servo_id: int, value: float, duration_ms: int) -> None:
         """
@@ -815,13 +815,13 @@ class FlightComputer:
             duration_ms (int): The duration to pulse the servo in milliseconds.
         """
         args = [servo_id, value, duration_ms]
-        self._set_next_command(0x00, 0x03, args)
+        self._set_next_command(0x02, 0x03, args)
 
     def restart(self):
         """
         Restarts flight computer. Requres 2 commands to confirm
         """
-        self._set_next_command(0x00, 0x06, [])
+        self._set_next_command(0x02, 0x06, [])
 
     @mode.setter
     def mode(self, new_mode: int) -> None:
@@ -830,7 +830,7 @@ class FlightComputer:
         Cannot be changed after shutdown.
         """
         args = [new_mode]
-        self._set_next_command(0x00, 0x04, args)
+        self._set_next_command(0x02, 0x04, args)
 
 
     @comm_link.setter
@@ -842,7 +842,7 @@ class FlightComputer:
         new_link: 0 = RS485, 1 = radio
         """
         args = [new_link]
-        self._set_next_command(0x00, 0x05, args)
+        self._set_next_command(0x02, 0x05, args)
 
 
     @sleep.setter
@@ -856,9 +856,9 @@ class FlightComputer:
         if value == self._sleep:
             raise ValueError(f"Flight computer is already in {value}")
         if value:
-            self._set_next_command(0x00, 0x04, [])
+            self._set_next_command(0x02, 0x04, [])
         else:
-            self._set_next_command(0x00, 0x05, [])
+            self._set_next_command(0x02, 0x05, [])
     
     def send_custom_command(self, command_id: int, args: List[int]) -> None:
         """
@@ -905,7 +905,7 @@ class FlightComputer:
                 self._command_sent = True
             else:
                 packet += bytearray([0x00])
-        return MAGIC_NUM + packet
+        return (MAGIC_NUM + packet).ljust(32, b'\x00')
     
     @staticmethod
     def _jsonify_keys(d):
